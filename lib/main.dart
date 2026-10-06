@@ -87,7 +87,7 @@ class HomePage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Trợ lý gợi ý trả lời tự nhiên cho Messenger và Zalo.',
+            'Đọc trực tiếp nội dung hội thoại đang mở bằng Trợ năng và gợi ý trả lời cho Messenger/Zalo.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 28),
@@ -104,7 +104,7 @@ class HomePage extends StatelessWidget {
           _SettingButton(
             icon: Icons.accessibility_new,
             title: 'Trợ năng',
-            subtitle: 'Cho phép AiChatBot phát hiện tin nhắn Messenger/Zalo',
+            subtitle: 'Đọc trực tiếp văn bản trên màn hình hội thoại',
             onPressed: _openAccessibilitySettings,
           ),
 
