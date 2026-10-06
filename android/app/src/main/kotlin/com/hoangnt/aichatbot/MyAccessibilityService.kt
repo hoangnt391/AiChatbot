@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
-import android.util.DisplayMetrics
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -54,16 +53,13 @@ class MyAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
 
         try {
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getMetrics(metrics)
-
+            val screenWidth = resources.displayMetrics.widthPixels
             val candidates = mutableListOf<Candidate>()
             collectCandidates(root, candidates)
 
             val incoming = candidates
                 .distinctBy { normalize(it.text) + "|" + it.top + "|" + it.bottom + "|" + it.centerX }
-                .filter { isIncomingMessage(it, metrics.widthPixels) }
+                .filter { isIncomingMessage(it, screenWidth) }
                 .sortedBy { it.top }
 
             if (incoming.isEmpty()) return
