@@ -181,7 +181,7 @@ class OverlayService : Service() {
                         return@post
                     }
 
-                    val service = MyAccessibilityService.instance
+                    val service = AutoReplyService.instance
 
                     if (service == null) {
                         Log.e(TAG, "Không tìm thấy AccessibilityService")
@@ -397,7 +397,7 @@ class OverlayService : Service() {
             return
         }
 
-        val service = MyAccessibilityService.instance
+        val service = AutoReplyService.instance
 
         if (service == null) {
             Log.e(TAG, "Không tìm thấy AccessibilityService")
