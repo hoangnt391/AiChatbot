@@ -5,15 +5,21 @@ import 'session_manager.dart';
 class OverlayPage extends StatefulWidget {
   final String suggestion;
   final bool loading;
+  final bool autoMode;
+  final String status;
   final VoidCallback? onClose;
-  final VoidCallback? onEdit;
+  final VoidCallback? onStop;
+  final ValueChanged<bool>? onAutoChanged;
 
   const OverlayPage({
     super.key,
     this.suggestion = '',
     this.loading = false,
+    this.autoMode = false,
+    this.status = 'Đang chờ...',
     this.onClose,
-    this.onEdit,
+    this.onStop,
+    this.onAutoChanged,
   });
 
   @override
@@ -21,83 +27,42 @@ class OverlayPage extends StatefulWidget {
 }
 
 class _OverlayPageState extends State<OverlayPage> {
-  late String _suggestion;
-  late bool _loading;
+  late String suggestion;
 
   @override
   void initState() {
     super.initState();
-    _suggestion = widget.suggestion;
-    _loading = widget.loading;
+    suggestion = widget.suggestion;
   }
 
-  Future<void> _copySuggestion() async {
-    if (_suggestion.trim().isEmpty) return;
-
-    await Clipboard.setData(ClipboardData(text: _suggestion));
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Đã sao chép câu trả lời'),
-        duration: Duration(seconds: 1),
-      ),
-    );
+  Future<void> _copy() async {
+    if (suggestion.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: suggestion));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã sao chép')),
+      );
+    }
   }
 
-  Future<void> _clearHistory() async {
-    await SessionManager().clearHistory();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Đã xóa lịch sử hội thoại'),
-        duration: Duration(seconds: 1),
-      ),
-    );
-  }
-
-  Future<void> _editSuggestion() async {
-    final controller = TextEditingController(text: _suggestion);
-
+  Future<void> _edit() async {
+    final controller = TextEditingController(text: suggestion);
     final result = await showDialog<String>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Sửa câu trả lời'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              hintText: 'Nhập câu trả lời...',
-              border: OutlineInputBorder(),
-            ),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sửa câu trả lời'),
+        content: TextField(controller: controller, maxLines: 5, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Lưu'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: const Text('Lưu'),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
-
     controller.dispose();
-
-    if (result == null || result.isEmpty || !mounted) return;
-
-    setState(() {
-      _suggestion = result;
-      _loading = false;
-    });
-
-    widget.onEdit?.call();
+    if (result != null && result.isNotEmpty) setState(() => suggestion = result);
   }
 
   @override
@@ -105,122 +70,77 @@ class _OverlayPageState extends State<OverlayPage> {
     return Material(
       color: Colors.transparent,
       child: Container(
-        constraints: const BoxConstraints(
-          minWidth: 280,
-          maxWidth: 380,
-          minHeight: 120,
-          maxHeight: 520,
-        ),
+        width: 360,
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(20),
           boxShadow: const [
-            BoxShadow(
-              blurRadius: 20,
-              spreadRadius: 2,
-              offset: Offset(0, 8),
-              color: Color(0x55000000),
-            ),
+            BoxShadow(blurRadius: 20, offset: Offset(0, 8), color: Color(0x55000000)),
           ],
-          border: Border.all(
-            color: Color(0x22000000),
-          ),
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      '💡 Gợi ý trả lời',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Đóng',
-                    onPressed: widget.onClose ?? () => Navigator.maybePop(context),
-                    icon: const Icon(Icons.close),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Flexible(
-                child: _loading
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 28),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 28,
-                              height: 28,
-                              child: CircularProgressIndicator(strokeWidth: 3),
-                            ),
-                            SizedBox(height: 12),
-                            Text(
-                              'Đang soạn...',
-                              style: TextStyle(fontSize: 15),
-                            ),
-                          ],
-                        ),
-                      )
-                    : Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: SelectableText(
-                          _suggestion.isEmpty
-                              ? 'Chưa có gợi ý trả lời.'
-                              : _suggestion,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-              ),
-              const SizedBox(height: 14),
-              if (!_loading && _suggestion.trim().isNotEmpty)
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _copySuggestion,
-                        icon: const Icon(Icons.copy, size: 18),
-                        label: const Text('Sao chép'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: _editSuggestion,
-                        icon: const Icon(Icons.edit, size: 18),
-                        label: const Text('Sửa'),
-                      ),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: _clearHistory,
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: const Text('Xóa lịch sử hội thoại'),
-              ),
-            ],
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            const Expanded(
+              child: Text('💡 AiChatBot',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            IconButton(onPressed: widget.onClose, icon: const Icon(Icons.close)),
+          ]),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Tự động trả lời'),
+            subtitle: Text(widget.autoMode ? 'BẬT — tự điền và gửi' : 'TẮT — chỉ gợi ý'),
+            value: widget.autoMode,
+            onChanged: widget.onAutoChanged,
           ),
-        ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(widget.status, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            ),
+            child: SelectableText(suggestion.isEmpty ? 'Chưa có gợi ý.' : suggestion),
+          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _copy, icon: const Icon(Icons.copy), label: const Text('Sao chép'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _edit, icon: const Icon(Icons.edit), label: const Text('Sửa'),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          TextButton.icon(
+            onPressed: widget.onStop,
+            icon: const Icon(Icons.stop_circle_outlined),
+            label: const Text('Dừng'),
+          ),
+          TextButton.icon(
+            onPressed: () async {
+              await SessionManager().clearHistory();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Đã xóa lịch sử')),
+                );
+              }
+            },
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Xóa lịch sử'),
+          ),
+        ]),
       ),
     );
   }
