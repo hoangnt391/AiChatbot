@@ -213,6 +213,56 @@ class AutoReplyService : AccessibilityService() {
         }
     }
 
+    /** Public entry point used by the overlay and other UI surfaces. */
+    fun fillInputAndSend(reply: String): Boolean {
+        val text = reply.trim()
+        if (text.isEmpty()) {
+            fail("Không có nội dung để gửi")
+            return false
+        }
+        val root = rootInActiveWindow ?: run {
+            fail("Không đọc được màn hình")
+            return false
+        }
+        try {
+            val input = findInput(root) ?: run {
+                fail("Không tìm thấy ô nhập liệu")
+                return false
+            }
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                fail("Không thể điền nội dung vào ô nhập")
+                return false
+            }
+            Thread.sleep(200)
+            val updated = rootInActiveWindow ?: run {
+                fail("Không đọc lại được màn hình sau khi điền")
+                return false
+            }
+            try {
+                val send = findSend(updated, input) ?: run {
+                    fail("Không tìm thấy nút Gửi")
+                    return false
+                }
+                if (!send.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    fail("Không nhấn được nút Gửi")
+                    return false
+                }
+                setStatus("Đã gửi")
+                return true
+            } finally {
+                updated.recycle()
+            }
+        } catch (e: Exception) {
+            fail("Lỗi Trợ năng: " + (e.message ?: "không xác định"))
+            return false
+        } finally {
+            root.recycle()
+        }
+    }
+
     private fun findInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val q = ArrayDeque<AccessibilityNodeInfo>()
         val list = mutableListOf<Pair<AccessibilityNodeInfo, Int>>()
