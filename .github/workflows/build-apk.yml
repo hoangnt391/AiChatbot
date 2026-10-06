@@ -22,6 +22,19 @@ jobs:
           flutter-version: "3.35.7"
           channel: stable
           cache: true
+      - name: Create test release keystore
+        working-directory: android/app
+        run: |
+          keytool -genkeypair -v \
+            -keystore test-release.keystore \
+            -storepass android \
+            -keypass android \
+            -alias aichatbot \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=AiChatBot, OU=Test, O=AiChatBot, L=Hanoi, S=HN, C=VN"
+
       - name: Flutter pub get
         run: flutter pub get
       - name: Build release APK
