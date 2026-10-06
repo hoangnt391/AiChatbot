@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
- android:accessibilityEventTypes="typeWindowContentChanged|typeViewTextChanged|typeNotificationStateChanged"
- android:accessibilityFeedbackType="feedbackGeneric" android:notificationTimeout="100"
- android:canRetrieveWindowContent="true" android:description="@string/accessibility_description"
- android:packageNames="com.zing.zalo,com.facebook.orca"/>
+    android:accessibilityEventTypes="typeWindowContentChanged|typeViewTextChanged|typeWindowStateChanged|typeNotificationStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="100"
+    android:canRetrieveWindowContent="true"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:description="@string/accessibility_description"
+    android:packageNames="com.zing.zalo,com.facebook.orca" />
