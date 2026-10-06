@@ -53,6 +53,7 @@ class HomePage extends StatelessWidget {
     }
 
     try {
+      await _channel.invokeMethod('setApiKey', {'apiKey': API_KEY});
       await _channel.invokeMethod('startAssistant');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -87,7 +88,7 @@ class HomePage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Đọc trực tiếp nội dung hội thoại đang mở bằng Trợ năng và gợi ý trả lời cho Messenger/Zalo.',
+            'Đọc trực tiếp hội thoại bằng Trợ năng, gọi GPT-4o-mini và tự động trả lời Zalo/Messenger.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 28),
@@ -143,8 +144,9 @@ class HomePage extends StatelessWidget {
                     '2. Mở "Trợ năng", tìm AiChatBot và bật dịch vụ.\n\n'
                     '3. Điền API_KEY trong lib/config.dart rồi build ứng dụng.\n\n'
                     '4. Nhấn "Bắt đầu Trợ lý". Bong bóng AiChatBot sẽ xuất hiện trên màn hình.\n\n'
-                    '5. Khi có tin nhắn mới trên Messenger hoặc Zalo, Trợ lý sẽ dùng ngữ cảnh hội thoại để tạo câu trả lời gợi ý.\n\n'
-                    '6. Trong bong bóng, bạn có thể xem gợi ý, sửa nội dung hoặc sao chép để gửi.',
+                    '5. Khi có tin nhắn mới, Trợ năng phát hiện tin và bắt đầu đếm đúng 5 giây.\n\n'
+                    '6. Sau 5 giây, GPT-4o-mini tạo câu trả lời từ lịch sử hội thoại.\n\n'
+                    '7. Nếu bật Tự động, ứng dụng tìm ô nhập, điền câu trả lời và nhấn Gửi. Nếu tắt, chỉ hiển thị gợi ý để sao chép thủ công.',
                   ),
                 ],
               ),
