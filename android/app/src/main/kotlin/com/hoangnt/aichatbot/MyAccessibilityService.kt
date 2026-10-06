@@ -23,6 +23,7 @@ class MyAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Log.d("AiChatAccessibility", "AccessibilityService connected")
     }
 
     override fun onDestroy() {
@@ -76,6 +77,8 @@ class MyAccessibilityService : AccessibilityService() {
         while (processedKeys.size > 100) {
             processedKeys.remove(processedKeys.first())
         }
+
+        Log.d("AiChatAccessibility", "Phát hiện tin mới: $message")
 
         OverlayService.enqueueIncoming(
             this,
