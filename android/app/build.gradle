@@ -24,6 +24,13 @@ android {
         versionCode 1
         versionName "1.0.0"
     }
+
+    // Sign the test release APK so Android can install it.
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+        }
+    }
 }
 
 flutter { source "../.." }
