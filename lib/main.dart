@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'config.dart';
+import 'openai_client.dart';
 
 void main() {
   runApp(const AiChatBotApp());
@@ -40,6 +41,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _channel.setMethodCallHandler(_handleNativeCall);
     _refreshState();
     _statusTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -51,6 +53,37 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _statusTimer?.cancel();
     super.dispose();
+  }
+
+  Future<dynamic> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'generateAiReply') {
+      final message = call.arguments is Map
+          ? (call.arguments['message']?.toString() ?? '')
+          : '';
+      if (message.trim().isEmpty) {
+        throw PlatformException(
+          code: 'EMPTY_MESSAGE',
+          message: 'Tin nhắn đầu vào rỗng',
+        );
+      }
+
+      try {
+        final history = <Map<String, String>>[];
+        final reply = await OpenAIClient().getReply(
+          message: message.trim(),
+          history: history,
+        );
+        return reply;
+      } on OpenAIException catch (e) {
+        throw PlatformException(code: 'OPENAI_ERROR', message: e.message);
+      } catch (e) {
+        throw PlatformException(
+          code: 'AI_ERROR',
+          message: e.toString(),
+        );
+      }
+    }
+    return null;
   }
 
   Future<void> _refreshState() async {
