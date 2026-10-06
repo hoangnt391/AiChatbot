@@ -157,9 +157,8 @@ class MainActivity : FlutterActivity() {
         val expected = ComponentName(this, AutoReplyService::class.java).flattenToString()
         return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
     }
-}
-
     override fun onDestroy() {
         aiChannel = null
         super.onDestroy()
     }
+}
