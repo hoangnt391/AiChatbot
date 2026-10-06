@@ -1,59 +1,187 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import 'config.dart';
 
-void main()=>runApp(const AiChatBotApp());
-
-class AiChatBotApp extends StatelessWidget{
- const AiChatBotApp({super.key});
- Widget build(BuildContext c)=>MaterialApp(debugShowCheckedModeBanner:false,title:'AiChatBot',theme:ThemeData(useMaterial3:true,colorSchemeSeed:Colors.blue),home:const HomePage());
+void main() {
+  runApp(const AiChatBotApp());
 }
 
-class Store{
- static Future<SharedPreferences> get p=>SharedPreferences.getInstance();
- static Future<String> key()async=>(await p).getString('openai_key')??'';
- static Future<void> saveKey(String v)async=>(await p).setString('openai_key',v);
- static Future<List<Map<String,dynamic>>> history()async{
-  final s=(await p).getString('history'); if(s==null)return[];
-  return List<Map<String,dynamic>>.from(jsonDecode(s));
- }
- static Future<void> add(String role,String content)async{
-  final h=await history(); h.add({'role':role,'content':content});
-  await (await p).setString('history',jsonEncode(h.length>40?h.sublist(h.length-40):h));
- }
+class AiChatBotApp extends StatelessWidget {
+  const AiChatBotApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'AiChatBot',
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: Colors.blue,
+      ),
+      home: const HomePage(),
+    );
+  }
 }
 
-class OpenAI{
- static Future<String> reply(String incoming,{String platform='Messenger'})async{
-  final key=await Store.key(); if(key.isEmpty)throw Exception('Chưa nhập OpenAI API key.');
-  final h=await Store.history();
-  final msgs=<Map<String,String>>[
-   {'role':'system','content':'Bạn là người Việt đang nhắn tin thật. Hãy soạn câu trả lời ngắn, tự nhiên, đời thường, đúng ngữ cảnh. Không nói mình là AI. Chỉ trả về câu có thể gửi.'},
-   ...h.map((e)=>{'role':e['role'] as String,'content':e['content'] as String}),
-   {'role':'user','content':'Nền tảng: $platform\nTin nhắn mới: $incoming'}
-  ];
-  final r=await http.post(Uri.parse('https://api.openai.com/v1/chat/completions'),headers:{'Authorization':'Bearer $key','Content-Type':'application/json'},body:jsonEncode({'model':'gpt-4o-mini','messages':msgs,'temperature':0.8,'max_tokens':180}));
-  if(r.statusCode<200||r.statusCode>=300)throw Exception('OpenAI ${r.statusCode}: ${r.body}');
-  final a=(jsonDecode(r.body)['choices'][0]['message']['content']??'').toString().trim();
-  await Store.add('user',incoming); await Store.add('assistant',a); return a;
- }
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  static const MethodChannel _channel = MethodChannel('aichatbot/native');
+
+  Future<void> _openOverlaySettings() async {
+    try {
+      await _channel.invokeMethod('openOverlaySettings');
+    } catch (_) {
+      // Native side can handle devices where the setting is unavailable.
+    }
+  }
+
+  Future<void> _openAccessibilitySettings() async {
+    try {
+      await _channel.invokeMethod('openAccessibility');
+    } catch (_) {}
+  }
+
+  Future<void> _startAssistant(BuildContext context) async {
+    if (API_KEY.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bạn chưa điền API_KEY trong lib/config.dart'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await _channel.invokeMethod('startAssistant');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã bắt đầu Trợ lý')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Không thể bắt đầu Trợ lý: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('AiChatBot'),
+        centerTitle: true,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Icon(Icons.smart_toy_outlined, size: 64),
+          const SizedBox(height: 12),
+          const Text(
+            'AiChatBot',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Trợ lý gợi ý trả lời tự nhiên cho Messenger và Zalo.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 28),
+
+          _SettingButton(
+            icon: Icons.layers_outlined,
+            title: 'Hiển thị trên ứng dụng khác',
+            subtitle: 'Cho phép AiChatBot hiển thị bong bóng nổi',
+            onPressed: _openOverlaySettings,
+          ),
+
+          const SizedBox(height: 12),
+
+          _SettingButton(
+            icon: Icons.accessibility_new,
+            title: 'Trợ năng',
+            subtitle: 'Cho phép AiChatBot phát hiện tin nhắn Messenger/Zalo',
+            onPressed: _openAccessibilitySettings,
+          ),
+
+          const SizedBox(height: 20),
+
+          SizedBox(
+            height: 54,
+            child: FilledButton.icon(
+              onPressed: () => _startAssistant(context),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text(
+                'Bắt đầu Trợ lý',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 28),
+
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Hướng dẫn sử dụng',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    '1. Mở "Hiển thị trên ứng dụng khác" và cấp quyền cho AiChatBot.\n\n'
+                    '2. Mở "Trợ năng", tìm AiChatBot và bật dịch vụ.\n\n'
+                    '3. Điền API_KEY trong lib/config.dart rồi build ứng dụng.\n\n'
+                    '4. Nhấn "Bắt đầu Trợ lý". Bong bóng AiChatBot sẽ xuất hiện trên màn hình.\n\n'
+                    '5. Khi có tin nhắn mới trên Messenger hoặc Zalo, Trợ lý sẽ dùng ngữ cảnh hội thoại để tạo câu trả lời gợi ý.\n\n'
+                    '6. Trong bong bóng, bạn có thể xem gợi ý, sửa nội dung hoặc sao chép để gửi.',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class HomePage extends StatefulWidget{const HomePage({super.key});State<HomePage> createState()=>_HomePageState();}
-class _HomePageState extends State<HomePage>{
- final keyCtrl=TextEditingController(); static const ch=MethodChannel('aichatbot/native'); bool on=false;
- void initState(){super.initState();Store.key().then((v)=>keyCtrl.text=v);}
- Future<void> access()async{await ch.invokeMethod('openAccessibility');}
- Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:const Text('AiChatBot')),body:ListView(padding:const EdgeInsets.all(18),children:[
-  const Text('AiChatBot',style:TextStyle(fontSize:28,fontWeight:FontWeight.bold)),
-  const SizedBox(height:8),const Text('Gợi ý trả lời tự nhiên cho Messenger và Zalo.'),
-  const SizedBox(height:24),TextField(controller:keyCtrl,decoration:const InputDecoration(labelText:'OpenAI API key',border:OutlineInputBorder())),
-  const SizedBox(height:10),FilledButton(onPressed:()async{await Store.saveKey(keyCtrl.text.trim());if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Đã lưu API key')));},child:const Text('Lưu API key')),
-  const SizedBox(height:18),FilledButton.icon(onPressed:access,icon:const Icon(Icons.accessibility_new),label:const Text('Mở cài đặt Trợ năng')),
-  const SizedBox(height:10),SwitchListTile(value:on,onChanged:(v)=>setState(()=>on=v),title:const Text('Bong bóng trợ lý'),subtitle:const Text('Cần cấp quyền hiển thị trên ứng dụng khác')),
-  const SizedBox(height:20),const Text('Luồng xử lý',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-  const Text('• Đọc tin nhắn mới bằng Accessibility Service\n• Giữ lịch sử hội thoại cục bộ\n• Gọi GPT-4o-mini tạo câu trả lời\n• Hiển thị gợi ý trong bong bóng\n• Sao chép / Sửa / Đóng')
- ]));
+class _SettingButton extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onPressed;
+
+  const _SettingButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(child: Icon(icon)),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onPressed,
+      ),
+    );
+  }
 }
