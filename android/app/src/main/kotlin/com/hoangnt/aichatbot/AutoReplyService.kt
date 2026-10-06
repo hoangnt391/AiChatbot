@@ -111,7 +111,7 @@ class AutoReplyService : AccessibilityService() {
 
         worker.execute {
             try {
-                reply = callOpenAI(incoming)
+                reply = MainActivity.requestAiReply(incoming)
                 ready = true
                 Log.d(TAG, "AI OK: " + reply)
             } catch (e: Exception) {
