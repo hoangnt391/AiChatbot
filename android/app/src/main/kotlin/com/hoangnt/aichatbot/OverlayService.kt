@@ -41,6 +41,22 @@ class OverlayService : Service() {
                 putExtra("platform", platform)
             })
         }
+
+        fun reportAccessibilityResult(context: Context, message: String) {
+            context.startService(Intent(context, OverlayService::class.java).apply {
+                action = "ACCESSIBILITY_RESULT"
+                putExtra("message", message)
+            })
+        }
+
+        fun enqueueIncoming(context: Context, platform: String, message: String) {
+            if (message.trim().isEmpty()) return
+            context.startService(Intent(context, OverlayService::class.java).apply {
+                action = ACTION_NEW_MESSAGE
+                putExtra("message", message.trim())
+                putExtra("platform", platform)
+            })
+        }
     }
 
     private lateinit var wm: WindowManager
@@ -76,6 +92,14 @@ class OverlayService : Service() {
                 val platform = intent.getStringExtra("platform").orEmpty()
                 if (message.isNotBlank()) {
                     scheduleAiReply(message, platform)
+                }
+            }
+
+            "ACCESSIBILITY_RESULT" -> {
+                val message = intent.getStringExtra("message").orEmpty()
+                if (message.isNotBlank()) {
+                    updateStatus(message)
+                    Log.d(TAG, "Accessibility: " + message)
                 }
             }
 
