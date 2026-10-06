@@ -67,6 +67,14 @@ class AutoReplyService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         try {
             val messages = collectMessages(root)
+
+            // Lần quét đầu chỉ tạo baseline, không trả lời tin cũ đang nằm trên màn hình.
+            if (seen.isEmpty()) {
+                messages.forEach { seen.add(key(pkg, it)) }
+                Log.d(TAG, "Baseline màn hình: " + messages.size + " node tin nhắn")
+                return
+            }
+
             val newMessage = messages.firstOrNull {
                 val k = key(pkg, it)
                 !seen.contains(k) && incoming(it)
