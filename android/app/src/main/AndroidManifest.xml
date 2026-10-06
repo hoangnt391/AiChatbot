@@ -6,8 +6,7 @@
 
     <application
         android:label="AiChatBot"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:name="${applicationName}">
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
