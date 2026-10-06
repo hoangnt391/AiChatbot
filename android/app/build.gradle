@@ -1,0 +1,17 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+android {
+    namespace "com.hoangnt.aichatbot"
+    compileSdk flutter.compileSdkVersion
+    defaultConfig {
+        applicationId "com.hoangnt.aichatbot"
+        minSdk 23
+        targetSdk flutter.targetSdkVersion
+        versionCode 1
+        versionName "1.0.0"
+    }
+}
+flutter { source "../.." }
