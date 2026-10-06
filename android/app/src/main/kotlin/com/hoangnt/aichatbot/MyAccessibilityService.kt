@@ -1,1 +1,188 @@
-package com.hoangnt.aichatbot\n\nimport android.accessibilityservice.AccessibilityService\nimport android.content.Intent\nimport android.graphics.Rect\nimport android.util.DisplayMetrics\nimport android.view.accessibility.AccessibilityEvent\nimport android.view.accessibility.AccessibilityNodeInfo\n\nclass MyAccessibilityService : AccessibilityService() {\n\n    private data class Candidate(\n        val text: String,\n        val top: Int,\n        val bottom: Int,\n        val centerX: Int,\n    )\n\n    // Snapshot các tin nhắn đang nhìn thấy để phát hiện tin mới.\n    private var previousCounts: Map<String, Int> = emptyMap()\n    private val processedKeys = LinkedHashSet<String>()\n\n    // Tin đối phương thường ở bên trái, tin mình gửi ở bên phải.\n    // Có thể chỉnh 0.50f - 0.70f nếu UI thực tế khác.\n    private val incomingRightLimit = 0.58f\n\n    override fun onAccessibilityEvent(event: AccessibilityEvent?) {\n        if (event == null) return\n        val packageName = event.packageName?.toString() ?: return\n        if (packageName != "com.zing.zalo" && packageName != "com.facebook.orca") return\n\n        val root = rootInActiveWindow ?: return\n        val candidates = mutableListOf<Candidate>()\n        val metrics = DisplayMetrics()\n        @Suppress("DEPRECATION")\n        windowManager.defaultDisplay.getMetrics(metrics)\n        val screenWidth = metrics.widthPixels\n        collectCandidates(root, candidates)\n        root.recycle()\n\n        val incoming = candidates\n            .filter { isIncomingMessage(it, screenWidth) }\n            .sortedBy { it.top }\n        if (incoming.isEmpty()) return\n\n        val currentCounts = incoming.groupingBy { normalize(it.text) }.eachCount()\n        val newCandidates = incoming.filter { candidate ->\n            val key = normalize(candidate.text)\n            val before = previousCounts[key] ?: 0\n            val current = currentCounts[key] ?: 0\n            current > before\n        }\n        previousCounts = currentCounts\n\n        val newest = newCandidates.maxByOrNull { it.bottom } ?: return\n        val text = newest.text.trim()\n        if (text.isEmpty()) return\n\n        val key = packageName + "|" + normalize(text) + "|" + newest.top + "|" + newest.bottom\n        if (!processedKeys.add(key)) return\n        while (processedKeys.size > 100) {\n            val iterator = processedKeys.iterator()\n            if (iterator.hasNext()) { iterator.next(); iterator.remove() }\n        }\n\n        val intent = Intent(this, OverlayService::class.java).apply {\n            action = "NEW_MESSAGE"\n            putExtra("platform", if (packageName == "com.zing.zalo") "Zalo" else "Messenger")\n            putExtra("message", text)\n        }\n        startService(intent)\n    }\n\n    private fun collectCandidates(node: AccessibilityNodeInfo, output: MutableList<Candidate>) {\n        val rect = Rect()\n        node.getBoundsInScreen(rect)\n        val text = node.text?.toString()?.trim()\n        if (!text.isNullOrEmpty() && isMessageText(text)) {\n            output.add(Candidate(text, rect.top, rect.bottom, rect.centerX()))\n        }\n        val description = node.contentDescription?.toString()?.trim()\n        if (!description.isNullOrEmpty() && isMessageText(description)) {\n            output.add(Candidate(description, rect.top, rect.bottom, rect.centerX()))\n        }\n        for (i in 0 until node.childCount) {\n            val child = node.getChild(i) ?: continue\n            collectCandidates(child, output)\n            child.recycle()\n        }\n    }\n\n    // Accessibility không cung cấp màu bubble đáng tin cậy, nên dùng vị trí làm điều kiện chính.\n    private fun isIncomingMessage(candidate: Candidate, screenWidth: Int): Boolean {\n        if (screenWidth <= 0) return false\n        return candidate.centerX < screenWidth * incomingRightLimit\n    }\n\n    private fun isMessageText(text: String): Boolean {\n        val value = normalize(text)\n        if (value.length < 1 || value.length > 1000) return false\n        val ignored = setOf(\n            "gửi", "send", "tin nhắn", "nhắn tin", "message",\n            "search", "tìm kiếm", "zalo", "messenger",\n            "trực tuyến", "online", "đã xem", "seen",\n            "thêm", "more", "quay lại", "back"\n        )\n        if (value.lowercase() in ignored) return false\n        if (value.startsWith("http://") || value.startsWith("https://")) return false\n        return true\n    }\n\n    private fun normalize(value: String): String = value.replace("\\s+".toRegex(), " ").trim()\n\n    override fun onInterrupt() {}\n}
+package com.hoangnt391.aichatbot
+
+import android.accessibilityservice.AccessibilityService
+import android.content.Intent
+import android.graphics.Rect
+import android.util.DisplayMetrics
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+
+class MyAccessibilityService : AccessibilityService() {
+
+    data class Candidate(val text: String, val top: Int, val bottom: Int, val centerX: Int)
+
+    companion object {
+        @Volatile var instance: MyAccessibilityService? = null
+    }
+
+    private var initialized = false
+    private var previousCounts: Map<String, Int> = emptyMap()
+    private val processedKeys = LinkedHashSet<String>()
+    private val incomingRightLimit = 0.58f
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+        val packageName = event.packageName?.toString() ?: return
+        if (packageName != "com.zing.zalo" && packageName != "com.facebook.orca") return
+
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            initialized = false
+            previousCounts = emptyMap()
+            processedKeys.clear()
+        }
+
+        val root = rootInActiveWindow ?: return
+        val candidates = mutableListOf<Candidate>()
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getMetrics(metrics)
+        collectCandidates(root, candidates)
+        root.recycle()
+
+        val incoming = candidates
+            .distinctBy { "${normalize(it.text)}|${it.top}|${it.bottom}|${it.centerX}" }
+            .filter { isIncomingMessage(it, metrics.widthPixels) }
+            .sortedBy { it.top }
+
+        if (incoming.isEmpty()) return
+
+        val currentCounts = incoming.groupingBy { normalize(it.text) }.eachCount()
+        if (!initialized) {
+            initialized = true
+            previousCounts = currentCounts
+            return
+        }
+
+        val newCandidates = incoming.filter {
+            currentCounts[normalize(it.text)]!! > (previousCounts[normalize(it.text)] ?: 0)
+        }
+        previousCounts = currentCounts
+        val newest = newCandidates.maxByOrNull { it.bottom } ?: return
+
+        val text = newest.text.trim()
+        if (text.isEmpty()) return
+        val key = packageName + "|" + normalize(text) + "|" + newest.top + "|" + newest.bottom
+        if (!processedKeys.add(key)) return
+        while (processedKeys.size > 100) {
+            processedKeys.remove(processedKeys.first())
+        }
+
+        OverlayService.enqueueIncoming(
+            this,
+            if (packageName == "com.zing.zalo") "Zalo" else "Messenger",
+            text
+        )
+    }
+
+    private fun collectCandidates(node: AccessibilityNodeInfo, output: MutableList<Candidate>) {
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        val text = node.text?.toString()?.trim()
+        if (!text.isNullOrEmpty() && isMessageText(text)) {
+            output.add(Candidate(text, rect.top, rect.bottom, rect.centerX()))
+        }
+        val description = node.contentDescription?.toString()?.trim()
+        if (!description.isNullOrEmpty() && isMessageText(description)) {
+            output.add(Candidate(description, rect.top, rect.bottom, rect.centerX()))
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            collectCandidates(child, output)
+            child.recycle()
+        }
+    }
+
+    private fun isIncomingMessage(candidate: Candidate, screenWidth: Int): Boolean {
+        return screenWidth > 0 && candidate.centerX < screenWidth * incomingRightLimit
+    }
+
+    private fun isMessageText(text: String): Boolean {
+        val value = normalize(text)
+        if (value.length !in 1..1000) return false
+        val lower = value.lowercase()
+        val ignored = setOf(
+            "gửi", "send", "tin nhắn", "nhắn tin", "message",
+            "search", "tìm kiếm", "zalo", "messenger",
+            "trực tuyến", "online", "đã xem", "seen",
+            "thêm", "more", "quay lại", "back"
+        )
+        if (lower in ignored) return false
+        if (lower.startsWith("http://") || lower.startsWith("https://")) return false
+        return true
+    }
+
+    private fun normalize(value: String): String = value.replace("\\s+".toRegex(), " ").trim()
+
+    fun fillAndSend(reply: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val input = findInput(root)
+        if (input == null) {
+            root.recycle()
+            return false
+        }
+
+        val filled = input.performAction(
+            AccessibilityNodeInfo.ACTION_SET_TEXT,
+            android.os.Bundle().apply {
+                putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    reply
+                )
+            }
+        )
+        if (!filled) {
+            root.recycle()
+            return false
+        }
+
+        Thread.sleep(150)
+        val send = findSendButton(root)
+        val sent = send?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        if (!sent) {
+            input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            input.performAction(AccessibilityNodeInfo.ACTION_IME_ACTION)
+        }
+        root.recycle()
+        return sent
+    }
+
+    private fun findInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node.isEditable && node.isVisibleToUser && node.isEnabled) return node
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::addLast)
+        }
+        return null
+    }
+
+    private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val text = node.text?.toString()?.trim()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.trim()?.lowercase() ?: ""
+            val label = "$text $desc"
+            if (node.isVisibleToUser && node.isEnabled && node.isClickable &&
+                ("gửi" in label || "send" in label || "send message" in label)) {
+                return node
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::addLast)
+        }
+        return null
+    }
+
+    override fun onInterrupt() {}
+}
