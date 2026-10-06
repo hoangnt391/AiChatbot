@@ -11,20 +11,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.35.7"
           channel: stable
           cache: true
-      - name: Create test release keystore
+
+      - name: Create release keystore
         working-directory: android/app
         run: |
+          rm -f test-release.keystore
           keytool -genkeypair -v \
             -keystore test-release.keystore \
             -storepass android \
@@ -33,15 +37,31 @@ jobs:
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -dname "CN=AiChatBot, OU=Test, O=AiChatBot, L=Hanoi, S=HN, C=VN"
+            -dname "CN=AiChatBot, OU=Release, O=AiChatBot, L=Hanoi, S=HN, C=VN"
 
       - name: Flutter pub get
         run: flutter pub get
-      - name: Build release APK
+
+      - name: Clean previous outputs
+        run: flutter clean
+
+      - name: Build signed release APK
         run: flutter build apk --release
-      - name: Upload APK
+
+      - name: Verify APK signature
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK"
+          echo "Verified signed APK:"
+          ls -lh "$APK"
+
+      - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: AiChatBot-release-apk
+          name: AiChatBot-release-signed
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+          retention-days: 90
