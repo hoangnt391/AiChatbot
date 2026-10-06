@@ -61,7 +61,7 @@ class MainActivity : FlutterActivity() {
 
         val nativeChannel = MethodChannel(engine.dartExecutor.binaryMessenger, "aichatbot/native")
         aiChannel = nativeChannel
-            .setMethodCallHandler { call, result ->
+        nativeChannel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "openOverlaySettings" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -158,3 +158,8 @@ class MainActivity : FlutterActivity() {
         return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
     }
 }
+
+    override fun onDestroy() {
+        aiChannel = null
+        super.onDestroy()
+    }
