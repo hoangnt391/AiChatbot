@@ -150,7 +150,7 @@ class MyAccessibilityService : AccessibilityService() {
         val sent = send?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
         if (!sent) {
             input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            input.performAction(AccessibilityNodeInfo.ACTION_IME_ACTION)
+            input.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER)
         }
         root.recycle()
         return sent
