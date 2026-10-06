@@ -18,6 +18,10 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class OverlayService : Service() {
 
@@ -71,8 +75,7 @@ class OverlayService : Service() {
                 val message = intent.getStringExtra("message").orEmpty()
                 val platform = intent.getStringExtra("platform").orEmpty()
                 if (message.isNotBlank()) {
-                    // AI layer can call this service with the generated answer.
-                    Log.d(TAG, "Nhận tin mới từ $platform: $message")
+                    scheduleAiReply(message, platform)
                 }
             }
 
@@ -92,6 +95,235 @@ class OverlayService : Service() {
         }
 
         return START_STICKY
+    }
+
+    private fun scheduleAiReply(message: String, platform: String) {
+        countdown?.let(handler::removeCallbacks)
+
+        if (!autoMode) {
+            updateStatus("TẮT — chỉ gợi ý")
+            Log.d(TAG, "Auto OFF: bỏ qua tự động gửi")
+            return
+        }
+
+        var seconds = 5
+        updateStatus("Đang chờ... 5s")
+
+        val task = object : Runnable {
+            override fun run() {
+                if (!autoMode) {
+                    countdown = null
+                    updateStatus("Đã dừng tự động")
+                    return
+                }
+
+                if (seconds > 1) {
+                    seconds--
+                    updateStatus("Đang chờ... " + seconds + "s")
+                    handler.postDelayed(this, 1_000L)
+                    return
+                }
+
+                countdown = null
+                updateStatus("Đang gọi AI...")
+                generateAndSendReply(message, platform)
+            }
+        }
+
+        countdown = task
+        handler.postDelayed(task, 1_000L)
+    }
+
+    private fun generateAndSendReply(message: String, platform: String) {
+        val key = prefs.getString(API_KEY, "").orEmpty().trim()
+
+        if (key.isEmpty()) {
+            Log.e(TAG, "API key chưa được cấu hình")
+            updateStatus("Chưa cấu hình API key")
+            return
+        }
+
+        Thread {
+            try {
+                val reply = callOpenAi(key, message)
+
+                handler.post {
+                    pendingReply = reply
+                    answer?.text = reply
+                    updateStatus("Đang tìm ô nhập...")
+
+                    if (!autoMode) {
+                        updateStatus("Gợi ý: " + reply)
+                        return@post
+                    }
+
+                    val service = MyAccessibilityService.instance
+
+                    if (service == null) {
+                        Log.e(TAG, "Không tìm thấy AccessibilityService")
+                        updateStatus("Không tìm thấy Trợ năng")
+                        return@post
+                    }
+
+                    Thread {
+                        val sent = service.fillInputAndSend(reply)
+
+                        handler.post {
+                            if (sent) {
+                                updateStatus("Đã gửi: " + reply)
+                                pendingReply = null
+                            } else {
+                                updateStatus("Không tìm thấy ô nhập/nút Gửi")
+                                Log.e(TAG, "fillInputAndSend() thất bại")
+                            }
+                        }
+                    }.start()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Lỗi gọi AI", e)
+                handler.post {
+                    updateStatus("Lỗi AI: " + (e.message ?: "không xác định"))
+                }
+            }
+        }.start()
+    }
+
+    private fun callOpenAi(key: String, incoming: String): String {
+        val historyRaw = prefs.getString("history", "[]").orEmpty()
+        val history = runCatching { JSONArray(historyRaw) }.getOrElse { JSONArray() }
+
+        val messages = JSONArray()
+        messages.put(
+            JSONObject()
+                .put("role", "system")
+                .put(
+                    "content",
+                    "Bạn đang nhắn tin như một người Việt bình thường. " +
+                        "Trả lời ngắn gọn 1-2 câu, tự nhiên, đời thường, " +
+                        "không trang trọng, không dài dòng. Không nói mình là AI. " +
+                        "Chỉ trả về câu có thể gửi ngay."
+                )
+        )
+
+        val start = maxOf(0, history.length() - 10)
+        for (i in start until history.length()) {
+            val item = history.optJSONObject(i) ?: continue
+            val user = item.optString("user")
+            val assistant = item.optString("assistant")
+            if (user.isNotEmpty()) {
+                messages.put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", user)
+                )
+            }
+            if (assistant.isNotEmpty()) {
+                messages.put(
+                    JSONObject()
+                        .put("role", "assistant")
+                        .put("content", assistant)
+                )
+            }
+        }
+
+        messages.put(
+            JSONObject()
+                .put("role", "user")
+                .put("content", incoming)
+        )
+
+        val body = JSONObject()
+            .put("model", "gpt-4o-mini")
+            .put("messages", messages)
+            .put("temperature", 0.8)
+            .put("max_tokens", 120)
+            .toString()
+
+        val connection =
+            URL("https://api.openai.com/v1/chat/completions")
+                .openConnection() as HttpURLConnection
+
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 30_000
+            connection.doOutput = true
+            connection.setRequestProperty(
+                "Authorization",
+                "Bearer " + key
+            )
+            connection.setRequestProperty(
+                "Content-Type",
+                "application/json"
+            )
+
+            connection.outputStream.use {
+                it.write(body.toByteArray(Charsets.UTF_8))
+            }
+
+            val code = connection.responseCode
+            val stream =
+                if (code in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                }
+
+            val response =
+                stream.bufferedReader().use { it.readText() }
+
+            if (code !in 200..299) {
+                val detail =
+                    runCatching {
+                        JSONObject(response)
+                            .optJSONObject("error")
+                            ?.optString("message")
+                    }.getOrNull()
+
+                throw IllegalStateException(
+                    "HTTP " + code +
+                        if (!detail.isNullOrEmpty()) {
+                            ": " + detail
+                        } else {
+                            ""
+                        }
+                )
+            }
+
+            val reply =
+                JSONObject(response)
+                    .getJSONArray("choices")
+                    .getJSONObject(0)
+                    .getJSONObject("message")
+                    .optString("content")
+                    .trim()
+
+            if (reply.isEmpty()) {
+                throw IllegalStateException("AI không trả về nội dung")
+            }
+
+            val updatedHistory = JSONArray(history.toString())
+            updatedHistory.put(
+                JSONObject()
+                    .put("user", incoming)
+                    .put("assistant", reply)
+            )
+
+            val trimmed = JSONArray()
+            val historyStart = maxOf(0, updatedHistory.length() - 10)
+
+            for (i in historyStart until updatedHistory.length()) {
+                trimmed.put(updatedHistory.getJSONObject(i))
+            }
+
+            prefs.edit()
+                .putString("history", trimmed.toString())
+                .apply()
+
+            return reply
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun scheduleAutomaticSend() {
