@@ -25,10 +25,23 @@ android {
         versionName "1.0.0"
     }
 
-    // Sign the test release APK so Android can install it.
+    def releaseKeystore = file(System.getenv("RELEASE_KEYSTORE") ?: "test-release.keystore")
+    def releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: "android"
+    def releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "aichatbot"
+    def releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: "android"
+
+    signingConfigs {
+        release {
+            storeFile releaseKeystore
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
 }
