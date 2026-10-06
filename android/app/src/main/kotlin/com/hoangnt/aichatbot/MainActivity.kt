@@ -11,10 +11,56 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+
+    companion object {
+        private const val AI_CHANNEL = "aichatbot/native"
+
+        @Volatile
+        private var aiChannel: MethodChannel? = null
+
+        fun requestAiReply(message: String): String {
+            val activeChannel = aiChannel
+                ?: throw IllegalStateException("Flutter MethodChannel chưa sẵn sàng")
+
+            val future = java.util.concurrent.CompletableFuture<String>()
+
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                activeChannel.invokeMethod(
+                    "generateAiReply",
+                    mapOf("message" to message),
+                    object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            future.complete(result?.toString().orEmpty())
+                        }
+
+                        override fun error(
+                            errorCode: String,
+                            errorMessage: String?,
+                            errorDetails: Any?
+                        ) {
+                            future.completeExceptionally(
+                                IllegalStateException(errorMessage ?: errorCode)
+                            )
+                        }
+
+                        override fun notImplemented() {
+                            future.completeExceptionally(
+                                IllegalStateException("Flutter chưa triển khai generateAiReply")
+                            )
+                        }
+                    }
+                )
+            }
+
+            return future.get(4500, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+    }
+
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
 
-        MethodChannel(engine.dartExecutor.binaryMessenger, "aichatbot/native")
+        val nativeChannel = MethodChannel(engine.dartExecutor.binaryMessenger, "aichatbot/native")
+        aiChannel = nativeChannel
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "openOverlaySettings" -> {
