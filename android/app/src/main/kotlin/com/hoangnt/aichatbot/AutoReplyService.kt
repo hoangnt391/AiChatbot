@@ -116,7 +116,7 @@ class AutoReplyService : AccessibilityService() {
         worker.execute {
             try {
                 Log.d(TAG, "🔵 [AI] Bắt đầu gọi AI: " + incoming)
-                val result = MainActivity.requestAiReply(incoming)
+                val result = AshnaWebClient.requestReply(this@AutoReplyService, incoming)
                 reply.set(result)
                 ready.set(true)
                 Log.d(TAG, "📩 [AI] Nhận phản hồi: " + result)
