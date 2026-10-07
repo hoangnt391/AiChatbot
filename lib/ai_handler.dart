@@ -12,13 +12,14 @@ Không nói mình là AI. Chỉ trả về câu có thể gửi ngay.
 ''';
 
   Future<String> reply(String incoming) async {
-    await Future<void>.delayed(const Duration(seconds: AUTO_REPLY_DELAY_SECONDS));
+    print('🔵 [AI] Nhận yêu cầu trả lời: $incoming');
     final history = await SessionManager().getHistory();
     final messages = <Map<String, String>>[
       {'role': 'system', 'content': _prompt},
       ...history,
       {'role': 'user', 'content': incoming},
     ];
+    print('🔵 [AI] Đang kết nối: $API_URL model=$MODEL');
     final response = await http.post(
       Uri.parse(API_URL),
       headers: {
@@ -32,12 +33,18 @@ Không nói mình là AI. Chỉ trả về câu có thể gửi ngay.
         'max_tokens': 120,
       }),
     ).timeout(const Duration(seconds: 30));
+    print('🔵 [AI] Nhận phản hồi, mã: ${response.statusCode}');
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      print('❌ [AI] Lỗi HTTP: ${response.body}');
       throw Exception('OpenAI HTTP ${response.statusCode}');
     }
     final data = jsonDecode(response.body);
     final text = data['choices']?[0]?['message']?['content']?.toString().trim();
-    if (text == null || text.isEmpty) throw Exception('AI không trả về nội dung');
+    if (text == null || text.isEmpty) {
+      print('❌ [AI] Không có nội dung trả về');
+      throw Exception('AI không trả về nội dung');
+    }
+    print('✅ [AI] Trả lời thành công: $text');
     await SessionManager().addMessage(role: 'user', content: incoming);
     await SessionManager().addMessage(role: 'assistant', content: text);
     return text;
