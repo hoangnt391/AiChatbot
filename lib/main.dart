@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'config.dart';
 import 'openai_client.dart';
 
@@ -37,11 +38,14 @@ class _HomePageState extends State<HomePage> {
   bool _running = false;
   String _status = 'Chưa khởi động';
   Timer? _statusTimer;
+  final TextEditingController _apiKeyController = TextEditingController();
+  String _apiKey = '';
 
   @override
   void initState() {
     super.initState();
     _channel.setMethodCallHandler(_handleNativeCall);
+    _loadApiKey();
     _refreshState();
     _statusTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -52,6 +56,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
@@ -71,6 +76,7 @@ class _HomePageState extends State<HomePage> {
         final history = <Map<String, String>>[];
         final reply = await OpenAIClient().getReply(
           message: message.trim(),
+          apiKey: _apiKey,
           history: history,
         );
         return reply;
@@ -84,6 +90,29 @@ class _HomePageState extends State<HomePage> {
       }
     }
     return null;
+  }
+
+  Future<void> _loadApiKey() async {
+    try {
+      final saved = await _channel.invokeMethod<String>('getApiKey') ?? '';
+      if (!mounted) return;
+      setState(() {
+        _apiKey = saved;
+        _apiKeyController.text = saved;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveApiKey() async {
+    final key = _apiKeyController.text.trim();
+    if (key.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API Key không được để trống')));
+      return;
+    }
+    await _channel.invokeMethod('setApiKey', {'apiKey': key});
+    if (!mounted) return;
+    setState(() => _apiKey = key);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã lưu API Key')));
   }
 
   Future<void> _refreshState() async {
@@ -133,10 +162,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _startAssistant() async {
-    if (API_KEY.trim().isEmpty) {
+    if (_apiKey.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Chưa cấu hình API_KEY trong lib/config.dart'),
+          content: Text('Chưa nhập API Key. Hãy nhập và bấm Lưu trước.'),
         ),
       );
       return;
@@ -160,7 +189,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      await _channel.invokeMethod('setApiKey', {'apiKey': API_KEY});
+      await _channel.invokeMethod('setApiKey', {'apiKey': _apiKey});
       await _channel.invokeMethod('startAssistant');
 
       if (!mounted) return;
@@ -213,6 +242,43 @@ class _HomePageState extends State<HomePage> {
             style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 20),
+
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('API Key', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _apiKeyController,
+                    obscureText: false,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(
+                      hintText: 'Nhập OpenAI API Key (sk-...)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => _apiKey = value,
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _saveApiKey,
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('Lưu API Key'),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(_apiKey.trim().isEmpty ? 'Chưa lưu API Key' : 'Đã có API Key được lưu trên máy'),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
 
           Card(
             child: ListTile(
