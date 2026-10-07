@@ -13,6 +13,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 class AutoReplyService : AccessibilityService() {
@@ -75,7 +77,8 @@ class AutoReplyService : AccessibilityService() {
                 return
             }
 
-            val newMessage = messages.firstOrNull {
+            Log.d(TAG, "📋 Quét màn hình: " + messages.size + " ứng viên tin nhắn")
+            val newMessage = messages.asReversed().firstOrNull {
                 val k = key(pkg, it)
                 !seen.contains(k) && incoming(it)
             }
@@ -105,18 +108,22 @@ class AutoReplyService : AccessibilityService() {
         setStatus("Đang chờ... 5s")
         Log.d(TAG, "Bắt đầu đếm chính xác 5 giây")
 
-        var reply: String? = null
-        var error: String? = null
-        var ready = false
+        Log.d(TAG, "⏱️ Bắt đầu đếm 5 giây; AI được gọi ngay song song")
+        val reply = AtomicReference<String?>(null)
+        val error = AtomicReference<String?>(null)
+        val ready = AtomicBoolean(false)
 
         worker.execute {
             try {
-                reply = MainActivity.requestAiReply(incoming)
-                ready = true
-                Log.d(TAG, "AI OK: " + reply)
+                Log.d(TAG, "🔵 [AI] Bắt đầu gọi AI: " + incoming)
+                val result = MainActivity.requestAiReply(incoming)
+                reply.set(result)
+                ready.set(true)
+                Log.d(TAG, "📩 [AI] Nhận phản hồi: " + result)
             } catch (e: Exception) {
-                error = e.message ?: "Lỗi AI"
-                Log.e(TAG, "AI ERROR", e)
+                error.set(e.message ?: "Lỗi AI")
+                ready.set(true)
+                Log.e(TAG, "❌ [AI] Lỗi gọi AI", e)
             }
         }
 
@@ -132,16 +139,20 @@ class AutoReplyService : AccessibilityService() {
                     handler.postDelayed(this, minOf(remaining, 100L))
                     return
                 }
-                if (!ready) {
+                Log.d(TAG, "⏱️ ĐỦ 5 GIÂY — kiểm tra kết quả AI")
+                if (!ready.get()) {
                     setStatus("Đã đủ 5s — đang chờ AI")
+                    Log.d(TAG, "⏳ AI chưa trả về, tiếp tục chờ")
                     handler.postDelayed(this, 100L)
                     return
                 }
-                if (!error.isNullOrBlank()) {
-                    setStatus("Lỗi AI: " + error)
+                if (!error.get().isNullOrBlank()) {
+                    val message = error.get() ?: "Lỗi AI"
+                    Log.e(TAG, "❌ AI ERROR sau 5s: " + message)
+                    setStatus("Lỗi AI: " + message)
                     return
                 }
-                val text = reply.orEmpty().trim()
+                val text = reply.get().orEmpty().trim()
                 if (text.isEmpty()) {
                     setStatus("AI không trả về nội dung")
                     return
@@ -156,8 +167,10 @@ class AutoReplyService : AccessibilityService() {
         if (!autoEnabled()) return
         setStatus("Đang tìm ô nhập...")
         worker.execute {
+            Log.d(TAG, "🔎 Tìm ô nhập trên " + platform)
             val root = rootInActiveWindow
             if (root == null) {
+                Log.e(TAG, "❌ rootInActiveWindow=null khi tìm ô nhập")
                 fail("Không đọc được màn hình " + platform)
                 return@execute
             }
@@ -189,17 +202,24 @@ class AutoReplyService : AccessibilityService() {
                     setStatus("Đã điền — đang tìm nút Gửi")
                     val send = findSend(updated, input)
                     if (send == null) {
-                        Log.e(TAG, "KHÔNG TÌM THẤY NÚT GỬI")
+                        Log.e(TAG, "❌ KHÔNG TÌM THẤY NÚT GỬI")
                         dumpNodes(updated)
                         fail("Không tìm thấy nút Gửi")
                         return@execute
                     }
-                    Log.d(TAG, "TÌM THẤY NÚT GỬI: " + describe(send))
+                    Log.d(TAG, "✅ TÌM THẤY NÚT GỬI: " + describe(send))
                     if (!send.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        fail("Đã tìm thấy nút Gửi nhưng không nhấn được")
-                        return@execute
+                        val parent = send.parent
+                        if (parent == null || !parent.isVisibleToUser || !parent.isEnabled ||
+                            !parent.isClickable ||
+                            !parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        ) {
+                            fail("Đã tìm thấy nút Gửi nhưng không nhấn được")
+                            return@execute
+                        }
+                        Log.d(TAG, "✅ Nhấn Gửi qua node cha")
                     }
-                    Log.d(TAG, "NHẤN GỬI THÀNH CÔNG")
+                    Log.d(TAG, "📤 NHẤN GỬI THÀNH CÔNG")
                     setStatus("Đã gửi: " + reply)
                 } finally {
                     updated.recycle()
@@ -330,6 +350,7 @@ class AutoReplyService : AccessibilityService() {
         var s = 0
         if ("gửi" in label || "send" in label) s += 260
         if ("send_message" in label || "sendmessage" in label) s += 160
+        if ("arrow" in label || "paper_plane" in label || "paperplane" in label) s += 100
         if ("btn_send" in label || "button_send" in label) s += 150
         if ("button" in cls || "imagebutton" in cls) s += 35
         if (r.bottom >= ir.top - 100 && r.top <= ir.bottom + 100) s += 120
