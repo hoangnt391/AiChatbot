@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -58,10 +61,22 @@ jobs:
           echo "Verified signed APK:"
           ls -lh "$APK"
 
-      - name: Upload verified APK
+      - name: Upload verified APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: AiChatBot-release-signed
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 90
+
+      - name: Publish permanent APK release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: AiChatBot Latest
+          body: "Latest signed AiChatBot APK. This release asset is kept separately from GitHub Actions artifacts."
+          files: build/app/outputs/flutter-apk/app-release.apk
+          overwrite_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
