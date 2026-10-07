@@ -89,6 +89,15 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
 
+                "openAshnaLogin" -> {
+                    startActivity(Intent(this, AshnaLoginActivity::class.java))
+                    result.success(true)
+                }
+
+                "isAshnaLoggedIn" -> {
+                    result.success(getSharedPreferences("aichatbot", MODE_PRIVATE).getBoolean("ashna_login_confirmed", false))
+                }
+
                 "openAccessibility" -> {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     result.success(true)
