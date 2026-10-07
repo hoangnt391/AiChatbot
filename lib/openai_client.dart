@@ -19,11 +19,12 @@ Bạn đang giúp người dùng soạn tin nhắn như một người Việt b�
 
   Future<String> getReply({
     required String message,
+    String? apiKey,
     List<Map<String, String>> history = const [],
   }) async {
-    final key = API_KEY.trim();
+    final key = (apiKey ?? API_KEY).trim();
     if (key.isEmpty) {
-      throw const OpenAIException('Chưa cấu hình API_KEY trong lib/config.dart.');
+      throw const OpenAIException('Chưa nhập API Key. Hãy mở ứng dụng và bấm Lưu API Key.');
     }
 
     final messages = <Map<String, String>>[
