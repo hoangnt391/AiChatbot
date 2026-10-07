@@ -21,8 +21,8 @@ android {
         applicationId "com.hoangnt.aichatbot"
         minSdk 21
         targetSdk flutter.targetSdkVersion
-        versionCode 2
-        versionName "1.1.0"
+        versionCode 3
+        versionName "1.1.1"
     }
 
     def releaseKeystore = file(System.getenv("RELEASE_KEYSTORE") ?: "test-release.keystore")
