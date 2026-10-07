@@ -23,7 +23,7 @@ class AutoReplyService : AccessibilityService() {
         private const val PREFS = "aichatbot"
         private const val AUTO_MODE = "auto_mode"
         private const val API_KEY = "api_key"
-        private const val DELAY_MS = 5000L
+        private const val DELAY_MS = 3000L
         private const val ZALO = "com.zing.zalo"
         private const val MESSENGER = "com.facebook.orca"
 
@@ -47,6 +47,9 @@ class AutoReplyService : AccessibilityService() {
     private val seen = LinkedHashSet<String>()
     private var currentPackage: String? = null
     private var lastKey: String? = null
+    private val pendingMessages = mutableListOf<String>()
+    private var pendingPlatform: String? = null
+    private var pendingSend: Runnable? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -104,63 +107,45 @@ class AutoReplyService : AccessibilityService() {
     }
 
     private fun processNewMessage(platform: String, incoming: String) {
-        val started = System.currentTimeMillis()
-        setStatus("Đang chờ... 5s")
-        Log.d(TAG, "Bắt đầu đếm chính xác 5 giây")
+        pendingMessages.add(incoming)
+        pendingPlatform = platform
+        pendingSend?.let(handler::removeCallbacks)
+        setStatus("Đang gom tin... 3s")
+        Log.d(TAG, "⏱️ Tin mới: reset 3 giây; đang gom " + pendingMessages.size + " tin")
 
-        Log.d(TAG, "⏱️ Bắt đầu đếm 5 giây; AI được gọi ngay song song")
-        val reply = AtomicReference<String?>(null)
-        val error = AtomicReference<String?>(null)
-        val ready = AtomicBoolean(false)
-
-        worker.execute {
-            try {
-                Log.d(TAG, "🔵 [AI] Bắt đầu gọi AI: " + incoming)
-                val result = AshnaWebClient.requestReply(this@AutoReplyService, incoming)
-                reply.set(result)
-                ready.set(true)
-                Log.d(TAG, "📩 [AI] Nhận phản hồi: " + result)
-            } catch (e: Exception) {
-                error.set(e.message ?: "Lỗi AI")
-                ready.set(true)
-                Log.e(TAG, "❌ [AI] Lỗi gọi AI", e)
+        val task = Runnable {
+            if (!autoEnabled()) {
+                pendingMessages.clear()
+                pendingPlatform = null
+                pendingSend = null
+                setStatus("Đã dừng — Tự động TẮT")
+                return@Runnable
+            }
+            val target = pendingPlatform ?: platform
+            val batch = pendingMessages.toList()
+            pendingMessages.clear()
+            pendingPlatform = null
+            pendingSend = null
+            val combined = batch.joinToString("\n")
+            setStatus("Đang hỏi AI với " + batch.size + " tin...")
+            Log.d(TAG, "🤖 Hết 3s yên lặng — gửi " + batch.size + " tin đã gom sang AI")
+            worker.execute {
+                try {
+                    val reply = AshnaWebClient.requestReply(this@AutoReplyService, combined).trim()
+                    if (reply.isEmpty()) {
+                        fail("AI không trả về nội dung")
+                        return@execute
+                    }
+                    Log.d(TAG, "📩 [AI] Nhận phản hồi: " + reply)
+                    sendReply(target, reply)
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [AI] Lỗi gọi AI", e)
+                    fail("Lỗi AI: " + (e.message ?: "không xác định"))
+                }
             }
         }
-
-        val tick = object : Runnable {
-            override fun run() {
-                if (!autoEnabled()) {
-                    setStatus("Đã dừng — Tự động TẮT")
-                    return
-                }
-                val remaining = DELAY_MS - (System.currentTimeMillis() - started)
-                if (remaining > 0) {
-                    setStatus("Đang chờ... " + ((remaining + 999) / 1000) + "s")
-                    handler.postDelayed(this, minOf(remaining, 100L))
-                    return
-                }
-                Log.d(TAG, "⏱️ ĐỦ 5 GIÂY — kiểm tra kết quả AI")
-                if (!ready.get()) {
-                    setStatus("Đã đủ 5s — đang chờ AI")
-                    Log.d(TAG, "⏳ AI chưa trả về, tiếp tục chờ")
-                    handler.postDelayed(this, 100L)
-                    return
-                }
-                if (!error.get().isNullOrBlank()) {
-                    val message = error.get() ?: "Lỗi AI"
-                    Log.e(TAG, "❌ AI ERROR sau 5s: " + message)
-                    setStatus("Lỗi AI: " + message)
-                    return
-                }
-                val text = reply.get().orEmpty().trim()
-                if (text.isEmpty()) {
-                    setStatus("AI không trả về nội dung")
-                    return
-                }
-                sendReply(platform, text)
-            }
-        }
-        handler.post(tick)
+        pendingSend = task
+        handler.postDelayed(task, DELAY_MS)
     }
 
     private fun sendReply(platform: String, reply: String) {
