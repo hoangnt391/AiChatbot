@@ -7,31 +7,26 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import kotlin.math.hypot
 
 class OverlayService : Service() {
-
     companion object {
         private const val TAG = "AiChatBotOverlay"
-        private const val ACTION_NEW_MESSAGE = "NEW_MESSAGE"
         private const val PREFS = "aichatbot"
         private const val AUTO_MODE = "auto_mode"
-        private const val API_KEY = "api_key"
-        private const val DELAY_MS = 5_000L
 
         fun enqueueAiReply(context: Context, reply: String, platform: String = "") {
             if (reply.trim().isEmpty()) return
@@ -48,33 +43,19 @@ class OverlayService : Service() {
                 putExtra("message", message)
             })
         }
-
-        fun enqueueIncoming(context: Context, platform: String, message: String) {
-            if (message.trim().isEmpty()) return
-            context.startService(Intent(context, OverlayService::class.java).apply {
-                action = ACTION_NEW_MESSAGE
-                putExtra("message", message.trim())
-                putExtra("platform", platform)
-            })
-        }
     }
 
     private lateinit var wm: WindowManager
     private val handler = Handler(Looper.getMainLooper())
-
     private var bubble: TextView? = null
     private var panel: LinearLayout? = null
+    private var deleteTarget: TextView? = null
     private var status: TextView? = null
     private var answer: TextView? = null
     private var autoSwitch: Switch? = null
-
     private var pendingReply: String? = null
-    private var countdown: Runnable? = null
 
-    private val prefs by lazy {
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-    }
-
+    private val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
     private var autoMode: Boolean
         get() = prefs.getBoolean(AUTO_MODE, false)
         set(value) = prefs.edit().putBoolean(AUTO_MODE, value).apply()
@@ -87,387 +68,85 @@ class OverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_NEW_MESSAGE -> {
-                val message = intent.getStringExtra("message").orEmpty()
-                val platform = intent.getStringExtra("platform").orEmpty()
-                if (message.isNotBlank()) {
-                    scheduleAiReply(message, platform)
-                }
-            }
-
             "ACCESSIBILITY_RESULT" -> {
                 val message = intent.getStringExtra("message").orEmpty()
-                if (message.isNotBlank()) {
-                    updateStatus(message)
-                    Log.d(TAG, "Accessibility: " + message)
-                }
+                if (message.isNotBlank()) updateStatus(message)
             }
-
             "AI_REPLY" -> {
                 val reply = intent.getStringExtra("reply").orEmpty().trim()
                 if (reply.isNotEmpty()) {
                     pendingReply = reply
                     answer?.text = reply
-
-                    if (autoMode) {
-                        scheduleAutomaticSend()
-                    } else {
-                        updateStatus("TẮT — chỉ gợi ý")
-                    }
                 }
             }
         }
-
         return START_STICKY
     }
 
-    private fun scheduleAiReply(message: String, platform: String) {
-        countdown?.let(handler::removeCallbacks)
-
-        if (!autoMode) {
-            updateStatus("TẮT — chỉ gợi ý")
-            Log.d(TAG, "Auto OFF: bỏ qua tự động gửi")
-            return
+    private fun rounded(color: Int, radiusDp: Float): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radiusDp * resources.displayMetrics.density
         }
-
-        var seconds = 5
-        updateStatus("Đang chờ... 5s")
-
-        val task = object : Runnable {
-            override fun run() {
-                if (!autoMode) {
-                    countdown = null
-                    updateStatus("Đã dừng tự động")
-                    return
-                }
-
-                if (seconds > 1) {
-                    seconds--
-                    updateStatus("Đang chờ... " + seconds + "s")
-                    handler.postDelayed(this, 1_000L)
-                    return
-                }
-
-                countdown = null
-                updateStatus("Đang gọi AI...")
-                generateAndSendReply(message, platform)
-            }
-        }
-
-        countdown = task
-        handler.postDelayed(task, 1_000L)
-    }
-
-    private fun generateAndSendReply(message: String, platform: String) {
-        val key = prefs.getString(API_KEY, "").orEmpty().trim()
-
-        if (key.isEmpty()) {
-            Log.e(TAG, "API key chưa được cấu hình")
-            updateStatus("Chưa cấu hình API key")
-            return
-        }
-
-        Thread {
-            try {
-                val reply = callOpenAi(key, message)
-
-                handler.post {
-                    pendingReply = reply
-                    answer?.text = reply
-                    updateStatus("Đang tìm ô nhập...")
-
-                    if (!autoMode) {
-                        updateStatus("Gợi ý: " + reply)
-                        return@post
-                    }
-
-                    val service = AutoReplyService.instance
-
-                    if (service == null) {
-                        Log.e(TAG, "Không tìm thấy AccessibilityService")
-                        updateStatus("Không tìm thấy Trợ năng")
-                        return@post
-                    }
-
-                    Thread {
-                        val sent = service.fillInputAndSend(reply)
-
-                        handler.post {
-                            if (sent) {
-                                updateStatus("Đã gửi: " + reply)
-                                pendingReply = null
-                            } else {
-                                updateStatus("Không tìm thấy ô nhập/nút Gửi")
-                                Log.e(TAG, "fillInputAndSend() thất bại")
-                            }
-                        }
-                    }.start()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Lỗi gọi AI", e)
-                handler.post {
-                    updateStatus("Lỗi AI: " + (e.message ?: "không xác định"))
-                }
-            }
-        }.start()
-    }
-
-    private fun callOpenAi(key: String, incoming: String): String {
-        val historyRaw = prefs.getString("history", "[]").orEmpty()
-        val history = runCatching { JSONArray(historyRaw) }.getOrElse { JSONArray() }
-
-        val messages = JSONArray()
-        messages.put(
-            JSONObject()
-                .put("role", "system")
-                .put(
-                    "content",
-                    "Bạn đang nhắn tin như một người Việt bình thường. " +
-                        "Trả lời ngắn gọn 1-2 câu, tự nhiên, đời thường, " +
-                        "không trang trọng, không dài dòng. Không nói mình là AI. " +
-                        "Chỉ trả về câu có thể gửi ngay."
-                )
-        )
-
-        val start = maxOf(0, history.length() - 10)
-        for (i in start until history.length()) {
-            val item = history.optJSONObject(i) ?: continue
-            val user = item.optString("user")
-            val assistant = item.optString("assistant")
-            if (user.isNotEmpty()) {
-                messages.put(
-                    JSONObject()
-                        .put("role", "user")
-                        .put("content", user)
-                )
-            }
-            if (assistant.isNotEmpty()) {
-                messages.put(
-                    JSONObject()
-                        .put("role", "assistant")
-                        .put("content", assistant)
-                )
-            }
-        }
-
-        messages.put(
-            JSONObject()
-                .put("role", "user")
-                .put("content", incoming)
-        )
-
-        val body = JSONObject()
-            .put("model", "gpt-4o-mini")
-            .put("messages", messages)
-            .put("temperature", 0.8)
-            .put("max_tokens", 120)
-            .toString()
-
-        val connection =
-            URL("https://api.openai.com/v1/chat/completions")
-                .openConnection() as HttpURLConnection
-
-        try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 30_000
-            connection.doOutput = true
-            connection.setRequestProperty(
-                "Authorization",
-                "Bearer " + key
-            )
-            connection.setRequestProperty(
-                "Content-Type",
-                "application/json"
-            )
-
-            connection.outputStream.use {
-                it.write(body.toByteArray(Charsets.UTF_8))
-            }
-
-            val code = connection.responseCode
-            val stream =
-                if (code in 200..299) {
-                    connection.inputStream
-                } else {
-                    connection.errorStream
-                }
-
-            val response =
-                stream.bufferedReader().use { it.readText() }
-
-            if (code !in 200..299) {
-                val detail =
-                    runCatching {
-                        JSONObject(response)
-                            .optJSONObject("error")
-                            ?.optString("message")
-                    }.getOrNull()
-
-                throw IllegalStateException(
-                    "HTTP " + code +
-                        if (!detail.isNullOrEmpty()) {
-                            ": " + detail
-                        } else {
-                            ""
-                        }
-                )
-            }
-
-            val reply =
-                JSONObject(response)
-                    .getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .optString("content")
-                    .trim()
-
-            if (reply.isEmpty()) {
-                throw IllegalStateException("AI không trả về nội dung")
-            }
-
-            val updatedHistory = JSONArray(history.toString())
-            updatedHistory.put(
-                JSONObject()
-                    .put("user", incoming)
-                    .put("assistant", reply)
-            )
-
-            val trimmed = JSONArray()
-            val historyStart = maxOf(0, updatedHistory.length() - 10)
-
-            for (i in historyStart until updatedHistory.length()) {
-                trimmed.put(updatedHistory.getJSONObject(i))
-            }
-
-            prefs.edit()
-                .putString("history", trimmed.toString())
-                .apply()
-
-            return reply
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun scheduleAutomaticSend() {
-        countdown?.let(handler::removeCallbacks)
-
-        if (!autoMode) {
-            updateStatus("TẮT — chỉ gợi ý")
-            return
-        }
-
-        var seconds = 5
-        updateStatus("Đang chờ... 5s")
-
-        val task = object : Runnable {
-            override fun run() {
-                if (!autoMode) {
-                    updateStatus("Đã dừng tự động")
-                    countdown = null
-                    return
-                }
-
-                if (seconds > 1) {
-                    seconds--
-                    updateStatus("Đang chờ... ${seconds}s")
-                    handler.postDelayed(this, 1_000L)
-                    return
-                }
-
-                countdown = null
-                sendReplyThroughAccessibility(pendingReply.orEmpty())
-            }
-        }
-
-        countdown = task
-        handler.postDelayed(task, 1_000L)
-    }
-
-    private fun sendReplyThroughAccessibility(reply: String) {
-        if (!autoMode) {
-            updateStatus("Đã dừng tự động")
-            return
-        }
-
-        if (reply.isBlank()) {
-            Log.e(TAG, "Không có nội dung AI để gửi")
-            updateStatus("Không có nội dung trả lời")
-            return
-        }
-
-        val service = AutoReplyService.instance
-
-        if (service == null) {
-            Log.e(TAG, "Không tìm thấy AccessibilityService")
-            updateStatus("Không tìm thấy Trợ năng")
-            return
-        }
-
-        updateStatus("Đang tìm ô nhập...")
-
-        Thread {
-            val result = service.fillInputAndSend(reply)
-
-            handler.post {
-                if (result) {
-                    updateStatus("Đã gửi: $reply")
-                    Log.d(TAG, "Tự động gửi thành công")
-                    pendingReply = null
-                } else {
-                    updateStatus("Không tìm thấy ô nhập/nút Gửi")
-                    Log.e(TAG, "fillInputAndSend() thất bại")
-                }
-            }
-        }.start()
-    }
 
     private fun showBubble() {
         if (bubble != null) return
+        val d = resources.displayMetrics.density
+        val size = (54 * d).toInt()
 
         val b = TextView(this).apply {
             text = "AI"
-            textSize = 18f
+            textSize = 15f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.rgb(30, 110, 220))
+            background = rounded(Color.rgb(30, 110, 220), 27f)
+            elevation = 8 * d
             setOnClickListener { showPanel() }
         }
 
         val lp = WindowManager.LayoutParams(
-            72, 72,
+            size, size,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        )
-
-        lp.gravity = Gravity.TOP or Gravity.START
-        lp.x = 30
-        lp.y = 300
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (12 * d).toInt()
+            y = (220 * d).toInt()
+        }
 
         var sx = 0f
         var sy = 0f
         var ox = 0
         var oy = 0
+        var moved = false
 
         b.setOnTouchListener { view, event ->
-            when (event.action) {
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    sx = event.rawX
-                    sy = event.rawY
-                    ox = lp.x
-                    oy = lp.y
-                    false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    lp.x = ox + (event.rawX - sx).toInt()
-                    lp.y = oy + (event.rawY - sy).toInt()
-                    wm.updateViewLayout(view, lp)
+                    sx = event.rawX; sy = event.rawY; ox = lp.x; oy = lp.y
+                    moved = false
+                    showDeleteTarget()
                     true
                 }
-                MotionEvent.ACTION_UP -> {
-                    view.performClick()
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - sx
+                    val dy = event.rawY - sy
+                    if (hypot(dx.toDouble(), dy.toDouble()) > 8 * d) moved = true
+                    lp.x = ox + dx.toInt()
+                    lp.y = oy + dy.toInt()
+                    wm.updateViewLayout(view, lp)
+                    updateDeleteTarget(event.rawX, event.rawY)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val delete = isOverDelete(event.rawX, event.rawY)
+                    hideDeleteTarget()
+                    if (delete) {
+                        stopSelf()
+                    } else if (!moved) {
+                        view.performClick()
+                    }
                     true
                 }
                 else -> false
@@ -478,95 +157,110 @@ class OverlayService : Service() {
         wm.addView(b, lp)
     }
 
+    private fun showDeleteTarget() {
+        if (deleteTarget != null) return
+        val d = resources.displayMetrics.density
+        val target = TextView(this).apply {
+            text = "✕  Kéo vào đây để tắt"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding((20*d).toInt(), (12*d).toInt(), (20*d).toInt(), (12*d).toInt())
+            background = rounded(Color.argb(225, 65, 65, 65), 28f)
+        }
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = (32*d).toInt()
+        }
+        deleteTarget = target
+        wm.addView(target, lp)
+    }
+
+    private fun updateDeleteTarget(x: Float, y: Float) {
+        deleteTarget?.background = rounded(
+            if (isOverDelete(x, y)) Color.rgb(200, 45, 45) else Color.argb(225, 65, 65, 65),
+            28f
+        )
+    }
+
+    private fun isOverDelete(x: Float, y: Float): Boolean {
+        val v = deleteTarget ?: return false
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        val pad = 30 * resources.displayMetrics.density
+        return x >= loc[0] - pad && x <= loc[0] + v.width + pad &&
+            y >= loc[1] - pad && y <= loc[1] + v.height + pad
+    }
+
+    private fun hideDeleteTarget() {
+        deleteTarget?.let { runCatching { wm.removeView(it) } }
+        deleteTarget = null
+    }
+
     private fun showPanel() {
         panel?.let { runCatching { wm.removeView(it) } }
-
+        val d = resources.displayMetrics.density
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(22, 22, 22, 22)
-            setBackgroundColor(Color.WHITE)
+            setPadding((18*d).toInt(), (16*d).toInt(), (18*d).toInt(), (16*d).toInt())
+            background = rounded(Color.WHITE, 18f)
         }
-
-        val title = TextView(this).apply {
-            text = "AiChatBot"
-            textSize = 20f
-            setTextColor(Color.BLACK)
-        }
-        box.addView(title)
-
+        box.addView(TextView(this).apply {
+            text = "AiChatBot"; textSize = 19f; setTextColor(Color.BLACK)
+        })
         autoSwitch = Switch(this).apply {
             text = "Tự động trả lời"
             isChecked = autoMode
             setOnCheckedChangeListener { _, checked ->
                 autoMode = checked
-                if (!checked) {
-                    countdown?.let(handler::removeCallbacks)
-                    countdown = null
-                    updateStatus("TẮT — chỉ gợi ý")
-                } else {
-                    updateStatus("BẬT — đang chờ...")
-                    if (!pendingReply.isNullOrBlank()) scheduleAutomaticSend()
-                }
+                AutoReplyService.setAutoMode(checked)
+                updateStatus(if (checked) "BẬT — đang chờ tin mới" else "TẮT")
             }
         }
         box.addView(autoSwitch)
-
         status = TextView(this).apply {
-            text = if (autoMode) "Đang chờ..." else "TẮT — chỉ gợi ý"
-            textSize = 15f
-            setTextColor(Color.DKGRAY)
+            text = AutoReplyService.getStatus(); textSize = 14f; setTextColor(Color.DKGRAY)
         }
         box.addView(status)
-
         answer = TextView(this).apply {
-            text = pendingReply ?: "Chưa có gợi ý"
-            textSize = 16f
-            setTextColor(Color.BLACK)
-            setPadding(12, 18, 12, 18)
+            text = pendingReply ?: "Chưa có gợi ý"; textSize = 15f; setTextColor(Color.BLACK)
+            setPadding(0, (10*d).toInt(), 0, (10*d).toInt())
         }
         box.addView(answer)
-
-        val copy = Button(this).apply {
+        box.addView(Button(this).apply {
             text = "Sao chép"
             setOnClickListener {
-                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(
-                    ClipData.newPlainText("AiChatBot", pendingReply.orEmpty())
-                )
+                (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager)
+                    .setPrimaryClip(ClipData.newPlainText("AiChatBot", pendingReply.orEmpty()))
                 updateStatus("Đã sao chép")
             }
-        }
-        box.addView(copy)
-
-        val stop = Button(this).apply {
-            text = "Dừng"
-            setOnClickListener {
-                countdown?.let(handler::removeCallbacks)
-                countdown = null
-                updateStatus("Đã dừng")
-                Log.d(TAG, "Người dùng nhấn Dừng")
-            }
-        }
-        box.addView(stop)
-
-        val close = Button(this).apply {
+        })
+        box.addView(Button(this).apply {
             text = "Đóng"
             setOnClickListener {
                 panel?.let { runCatching { wm.removeView(it) } }
                 panel = null
             }
-        }
-        box.addView(close)
+        })
+        box.addView(Button(this).apply {
+            text = "Tắt bong bóng"
+            setOnClickListener { stopSelf() }
+        })
 
+        val maxWidth = (resources.displayMetrics.widthPixels * 0.86f).toInt()
         val lp = WindowManager.LayoutParams(
-            760,
+            maxWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        )
-        lp.gravity = Gravity.CENTER
-
+        ).apply { gravity = Gravity.CENTER }
         panel = box
         wm.addView(box, lp)
     }
@@ -579,15 +273,11 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
-        countdown?.let(handler::removeCallbacks)
-        countdown = null
-
+        hideDeleteTarget()
         panel?.let { runCatching { wm.removeView(it) } }
         bubble?.let { runCatching { wm.removeView(it) } }
-
         panel = null
         bubble = null
-
         super.onDestroy()
     }
 
