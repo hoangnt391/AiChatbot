@@ -82,6 +82,10 @@ class MainActivity : FlutterActivity() {
                         result.success(isAccessibilityEnabled())
                     }
 
+                    "getApiKey" -> {
+                        result.success(getSharedPreferences("aichatbot", MODE_PRIVATE).getString("api_key", "").orEmpty())
+                    }
+
                     "setApiKey" -> {
                         val key = call.argument<String>("apiKey").orEmpty().trim()
                         getSharedPreferences("aichatbot", MODE_PRIVATE)
