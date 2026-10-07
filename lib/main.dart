@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'config.dart';
-import 'openai_client.dart';
 
 void main() {
   runApp(const AiChatBotApp());
@@ -38,14 +36,12 @@ class _HomePageState extends State<HomePage> {
   bool _running = false;
   String _status = 'Chưa khởi động';
   Timer? _statusTimer;
-  final TextEditingController _apiKeyController = TextEditingController();
-  String _apiKey = '';
+  bool _ashnaLoggedIn = false;
 
   @override
   void initState() {
     super.initState();
     _channel.setMethodCallHandler(_handleNativeCall);
-    _loadApiKey();
     _refreshState();
     _statusTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -56,63 +52,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _statusTimer?.cancel();
-    _apiKeyController.dispose();
     super.dispose();
-  }
-
-  Future<dynamic> _handleNativeCall(MethodCall call) async {
-    if (call.method == 'generateAiReply') {
-      final message = call.arguments is Map
-          ? (call.arguments['message']?.toString() ?? '')
-          : '';
-      if (message.trim().isEmpty) {
-        throw PlatformException(
-          code: 'EMPTY_MESSAGE',
-          message: 'Tin nhắn đầu vào rỗng',
-        );
-      }
-
-      try {
-        final history = <Map<String, String>>[];
-        final reply = await OpenAIClient().getReply(
-          message: message.trim(),
-          apiKey: _apiKey,
-          history: history,
-        );
-        return reply;
-      } on OpenAIException catch (e) {
-        throw PlatformException(code: 'OPENAI_ERROR', message: e.message);
-      } catch (e) {
-        throw PlatformException(
-          code: 'AI_ERROR',
-          message: e.toString(),
-        );
-      }
-    }
-    return null;
-  }
-
-  Future<void> _loadApiKey() async {
-    try {
-      final saved = await _channel.invokeMethod<String>('getApiKey') ?? '';
-      if (!mounted) return;
-      setState(() {
-        _apiKey = saved;
-        _apiKeyController.text = saved;
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _saveApiKey() async {
-    final key = _apiKeyController.text.trim();
-    if (key.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API Key không được để trống')));
-      return;
-    }
-    await _channel.invokeMethod('setApiKey', {'apiKey': key});
-    if (!mounted) return;
-    setState(() => _apiKey = key);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã lưu API Key')));
   }
 
   Future<void> _refreshState() async {
@@ -123,12 +63,15 @@ class _HomePageState extends State<HomePage> {
           await _channel.invokeMethod<bool>('getAutoMode') ?? false;
       final status =
           await _channel.invokeMethod<String>('getAutoStatus') ?? _status;
+      final ashna =
+          await _channel.invokeMethod<bool>('isAshnaLoggedIn') ?? false;
 
       if (!mounted) return;
       setState(() {
         _accessibilityEnabled = enabled;
         _autoMode = auto;
         _status = status;
+        _ashnaLoggedIn = ashna;
       });
     } catch (_) {}
   }
@@ -161,13 +104,20 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _openAshnaLogin() async {
+    await _channel.invokeMethod('openAshnaLogin');
+  }
+
   Future<void> _startAssistant() async {
-    if (_apiKey.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Chưa nhập API Key. Hãy nhập và bấm Lưu trước.'),
-        ),
-      );
+    final ashnaLoggedIn =
+        await _channel.invokeMethod<bool>('isAshnaLoggedIn') ?? false;
+    if (!ashnaLoggedIn) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Hãy đăng nhập Ashna một lần trước.')),
+        );
+      }
+      await _openAshnaLogin();
       return;
     }
 
@@ -189,7 +139,6 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      await _channel.invokeMethod('setApiKey', {'apiKey': _apiKey});
       await _channel.invokeMethod('startAssistant');
 
       if (!mounted) return;
@@ -244,25 +193,22 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 20),
 
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('API Key', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _apiKeyController,
-                    obscureText: false,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      hintText: 'Nhập OpenAI API Key (sk-...)',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (value) => _apiKey = value,
-                  ),
-                  const SizedBox(height: 10),
+            child: ListTile(
+              leading: Icon(
+                _ashnaLoggedIn ? Icons.check_circle : Icons.login,
+              ),
+              title: const Text('Ashna Web'),
+              subtitle: Text(
+                _ashnaLoggedIn
+                    ? 'Đã lưu phiên đăng nhập'
+                    : 'Đăng nhập một lần để dùng AI',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openAshnaLogin,
+            ),
+          ),
+
+          const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
@@ -384,9 +330,9 @@ class _HomePageState extends State<HomePage> {
                   Text(
                     '1. Mở Zalo hoặc Messenger và vào đúng cuộc trò chuyện.\n\n'
                     '2. AutoReplyService chỉ đọc trực tiếp màn hình của hai ứng dụng này.\n\n'
-                    '3. Khi có tin mới và Tự động đang BẬT, bắt đầu bộ đếm 5 giây.\n\n'
-                    '4. AI dùng GPT-4o-mini tạo câu trả lời.\n\n'
-                    '5. Đủ 5 giây: tìm ô nhập → điền câu trả lời → tìm nút Gửi → mô phỏng nhấn.\n\n'
+                    '3. Khi có tin mới và Tự động đang BẬT, bắt đầu đếm 3 giây; có tin mới thì gom thêm và đếm lại từ đầu.\n\n'
+                    '4. Im đủ 3 giây: gửi toàn bộ cụm tin sang Ashna Web để tạo một câu trả lời.\n\n'
+                    '5. Nhận câu trả lời: tìm ô nhập → điền → tìm nút Gửi → mô phỏng nhấn.\n\n'
                     '6. Mọi bước tìm ô nhập/nút Gửi đều ghi log rõ ràng với tag AiChatAutoReply.',
                   ),
                 ],
