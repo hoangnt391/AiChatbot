@@ -7,14 +7,8 @@ import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 class AutoReplyService : AccessibilityService() {
@@ -22,7 +16,6 @@ class AutoReplyService : AccessibilityService() {
         private const val TAG = "AiChatAutoReply"
         private const val PREFS = "aichatbot"
         private const val AUTO_MODE = "auto_mode"
-        private const val API_KEY = "api_key"
         private const val DELAY_MS = 3000L
         private const val ZALO = "com.zing.zalo"
         private const val MESSENGER = "com.facebook.orca"
@@ -379,71 +372,6 @@ class AutoReplyService : AccessibilityService() {
     private fun key(pkg: String, c: Candidate): String =
         pkg + "|" + c.text + "|" + c.rect.left + "|" + c.rect.top + "|" +
             c.rect.right + "|" + c.rect.bottom
-
-    private fun callOpenAI(incoming: String): String {
-        val key = prefs.getString(API_KEY, "").orEmpty().trim()
-        if (key.isEmpty()) error("Chưa cấu hình API_KEY")
-        val history = runCatching {
-            JSONArray(prefs.getString("history", "[]"))
-        }.getOrElse { JSONArray() }
-
-        val messages = JSONArray().put(
-            JSONObject().put("role","system").put("content",
-                "Bạn đang nhắn tin như một người Việt bình thường. Trả lời ngắn gọn 1-2 câu, tự nhiên, đời thường, không trang trọng, không dài dòng. Không nói mình là AI. Chỉ trả về câu có thể gửi ngay.")
-        )
-
-        for (i in maxOf(0, history.length()-10) until history.length()) {
-            val x = history.optJSONObject(i) ?: continue
-            if (x.optString("user").isNotEmpty()) {
-                messages.put(JSONObject().put("role","user").put("content",x.optString("user")))
-            }
-            if (x.optString("assistant").isNotEmpty()) {
-                messages.put(JSONObject().put("role","assistant").put("content",x.optString("assistant")))
-            }
-        }
-        messages.put(JSONObject().put("role","user").put("content",incoming))
-
-        val body = JSONObject().put("model","gpt-4o-mini")
-            .put("messages",messages).put("temperature",.8)
-            .put("max_tokens",120).toString()
-
-        val c = URL("https://api.openai.com/v1/chat/completions")
-            .openConnection() as HttpURLConnection
-        try {
-            c.requestMethod="POST"
-            c.connectTimeout=15000
-            c.readTimeout=30000
-            c.doOutput=true
-            c.setRequestProperty("Authorization","Bearer " + key)
-            c.setRequestProperty("Content-Type","application/json")
-            c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-
-            val code=c.responseCode
-            val stream=if(code in 200..299)c.inputStream else c.errorStream
-            val response=stream.bufferedReader().use{it.readText()}
-            if(code !in 200..299) {
-                val detail=runCatching {
-                    JSONObject(response).optJSONObject("error")?.optString("message")
-                }.getOrNull()
-                error("HTTP " + code + if(detail.isNullOrEmpty()) "" else ": " + detail)
-            }
-
-            val answer=JSONObject(response).getJSONArray("choices").getJSONObject(0)
-                .getJSONObject("message").optString("content").trim()
-            if(answer.isEmpty()) error("AI không trả về nội dung")
-
-            val updated=JSONArray(history.toString())
-                .put(JSONObject().put("user",incoming).put("assistant",answer))
-            val trimmed=JSONArray()
-            for(i in maxOf(0,updated.length()-10) until updated.length()) {
-                trimmed.put(updated.getJSONObject(i))
-            }
-            prefs.edit().putString("history",trimmed.toString()).apply()
-            return answer
-        } finally {
-            c.disconnect()
-        }
-    }
 
     private fun autoEnabled() = prefs.getBoolean(AUTO_MODE, false)
     private fun setStatus(s: String) { statusText=s; Log.d(TAG,s) }
