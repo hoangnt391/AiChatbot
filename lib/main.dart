@@ -41,7 +41,6 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _channel.setMethodCallHandler(_handleNativeCall);
     _refreshState();
     _statusTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -205,22 +204,6 @@ class _HomePageState extends State<HomePage> {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: _openAshnaLogin,
-            ),
-          ),
-
-          const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _saveApiKey,
-                      icon: const Icon(Icons.save_outlined),
-                      label: const Text('Lưu API Key'),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(_apiKey.trim().isEmpty ? 'Chưa lưu API Key' : 'Đã có API Key được lưu trên máy'),
-                ],
-              ),
             ),
           ),
 
