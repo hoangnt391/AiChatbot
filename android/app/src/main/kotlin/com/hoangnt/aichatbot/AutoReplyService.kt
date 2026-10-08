@@ -176,7 +176,7 @@ class AutoReplyService : AccessibilityService() {
                     return@execute
                 }
                 Log.d(TAG, "ĐIỀN NỘI DUNG THÀNH CÔNG")
-                Thread.sleep(200)
+                Thread.sleep(650)
 
                 val updated = rootInActiveWindow
                 if (updated == null) {
@@ -185,7 +185,7 @@ class AutoReplyService : AccessibilityService() {
                 }
                 try {
                     setStatus("Đã điền — đang tìm nút Gửi")
-                    val send = findSend(updated, input)
+                    val send = findSend(updated, findInput(updated) ?: input)
                     if (send == null) {
                         Log.e(TAG, "❌ KHÔNG TÌM THẤY NÚT GỬI")
                         dumpNodes(updated)
@@ -241,7 +241,7 @@ class AutoReplyService : AccessibilityService() {
                 fail("Không thể điền nội dung vào ô nhập")
                 return false
             }
-            Thread.sleep(200)
+            Thread.sleep(650)
             val updated = rootInActiveWindow ?: run {
                 fail("Không đọc lại được màn hình sau khi điền")
                 return false
@@ -333,16 +333,19 @@ class AutoReplyService : AccessibilityService() {
             .joinToString(" ").lowercase()
         val cls = n.className?.toString()?.lowercase().orEmpty()
         var s = 0
+        if ("like" in label || "thích" in label || "thumb" in label || "microphone" in label || "camera" in label) return -1000
         if ("gửi" in label || "send" in label) s += 260
         if ("send_message" in label || "sendmessage" in label) s += 160
         if ("arrow" in label || "paper_plane" in label || "paperplane" in label) s += 100
         if ("btn_send" in label || "button_send" in label) s += 150
         if ("button" in cls || "imagebutton" in cls) s += 35
         if (r.bottom >= ir.top - 100 && r.top <= ir.bottom + 100) s += 120
-        if (r.centerX() >= ir.right - 20) s += 110
+        if (r.centerX() >= ir.right - 20 && r.centerX() < ir.right + 180) s += 110
         if (r.top > resources.displayMetrics.heightPixels * .60) s += 70
         if (r.width() in 25..300 && r.height() in 25..300) s += 25
         if (abs(r.centerX() - ir.right) < resources.displayMetrics.widthPixels * .35) s += 60
+        if (r.centerX() < ir.centerX()) s -= 180
+        if (r.width() > 180 || r.height() > 180) s -= 250
         return s
     }
 
