@@ -70,9 +70,10 @@ object AshnaWebClient {
    "var input=a.sort(function(x,y){return y.getBoundingClientRect().bottom-x.getBoundingClientRect().bottom})[0];if(!input)return 'NO_INPUT';"+
    "var baseline=body,q="+quote(prompt)+";input.focus();if(input.isContentEditable)input.textContent=q;else{var setter=Object.getOwnPropertyDescriptor(input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value');if(setter&&setter.set)setter.set.call(input,q);else input.value=q;}"+
    "input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));"+
-   "var bs=[].slice.call(document.querySelectorAll('button,[role=button],input[type=submit]')).filter(vis);"+
-   "var b=bs.find(function(x){var z=((x.innerText||'')+' '+(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')).toLowerCase();return /send|gửi|submit|arrow.?up|paper.?plane/.test(z)});"+
-   "if(b&&!b.disabled)b.click();else{var form=input.closest('form');if(form&&form.requestSubmit)form.requestSubmit();else return 'NO_SEND_BUTTON';}"+
+   "var bs=[].slice.call(document.querySelectorAll('button,[role=button],input[type=submit]')).filter(function(x){return vis(x)&&!x.disabled&&x.getAttribute('aria-disabled')!='true'});"+
+   "var score=function(x){var z=((x.innerText||'')+' '+(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')+' '+(x.getAttribute('data-testid')||'')).toLowerCase();var s=0;if(/send|gửi|submit|arrow.?up|paper.?plane/.test(z))s+=200;if(x.type==='submit')s+=100;if(x.querySelector('svg path'))s+=15;var r=x.getBoundingClientRect(),ir=input.getBoundingClientRect();if(Math.abs(r.top-ir.top)<100)s+=80;if(r.left>=ir.left&&r.left<=ir.right+120)s+=60;return s};"+
+   "bs.sort(function(x,y){return score(y)-score(x)});var b=bs.length&&score(bs[0])>=100?bs[0]:null;"+
+   "if(b){b.click()}else{var form=input.closest('form');if(form&&form.requestSubmit)form.requestSubmit();else return 'NO_SEND_BUTTON';}"+
    "return JSON.stringify({state:'SENT',baseline:baseline})})();"
   v.evaluateJavascript(js){raw->
    val state=decode(raw)
