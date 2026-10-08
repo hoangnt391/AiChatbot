@@ -40,6 +40,8 @@ class AutoReplyService : AccessibilityService() {
     private val seen = LinkedHashSet<String>()
     private var currentPackage: String? = null
     private var lastKey: String? = null
+    private var previousIncomingCounts: Map<String, Int> = emptyMap()
+    private val recentContext = ArrayDeque<String>()
     private val pendingMessages = mutableListOf<String>()
     private var pendingPlatform: String? = null
     private var pendingSend: Runnable? = null
@@ -59,6 +61,11 @@ class AutoReplyService : AccessibilityService() {
             currentPackage = pkg
             seen.clear()
             lastKey = null
+            previousIncomingCounts = emptyMap()
+            recentContext.clear()
+            pendingMessages.clear()
+            pendingSend?.let(handler::removeCallbacks)
+            pendingSend = null
             Log.d(TAG, "Theo dõi gói: " + pkg)
         }
 
@@ -66,41 +73,40 @@ class AutoReplyService : AccessibilityService() {
         try {
             val messages = collectMessages(root)
 
-            // Lần quét đầu chỉ tạo baseline, không trả lời tin cũ đang nằm trên màn hình.
-            if (seen.isEmpty()) {
-                messages.forEach { seen.add(key(pkg, it)) }
-                Log.d(TAG, "Baseline màn hình: " + messages.size + " node tin nhắn")
+            val incomingMessages = messages.filter { incoming(it) }
+            val counts = incomingMessages.groupingBy { it.text }.eachCount()
+            if (previousIncomingCounts.isEmpty()) {
+                previousIncomingCounts = counts
+                incomingMessages.takeLast(12).forEach { rememberContext(it.text) }
+                Log.d(TAG, "Baseline: " + incomingMessages.size + " tin đến; không gửi tin cũ")
                 return
             }
-
-            Log.d(TAG, "📋 Quét màn hình: " + messages.size + " ứng viên tin nhắn")
-            val newMessage = messages.asReversed().firstOrNull {
-                val k = key(pkg, it)
-                !seen.contains(k) && incoming(it)
-            }
-
-            messages.forEach { seen.add(key(pkg, it)) }
-            while (seen.size > 250) seen.iterator().next().let(seen::remove)
-
-            if (newMessage == null) return
-            val k = key(pkg, newMessage)
-            if (k == lastKey) return
-            lastKey = k
-
-            Log.d(TAG, "PHÁT HIỆN TIN MỚI: " + newMessage.text)
+            val remaining = previousIncomingCounts.toMutableMap()
+            val newIncoming = incomingMessages.filter { candidate ->
+                val old = remaining[candidate.text] ?: 0
+                if (old > 0) { remaining[candidate.text] = old - 1; false } else true
+            }.takeLast(2)
+            previousIncomingCounts = counts
+            if (newIncoming.isEmpty()) return
+            newIncoming.forEach { rememberContext(it.text) }
             if (!autoEnabled()) {
                 setStatus("Có tin mới — Tự động TẮT")
-                Log.d(TAG, "AUTO OFF: không gọi AI/gửi")
                 return
             }
-            processNewMessage(pkg, newMessage.text)
+            newIncoming.forEach { processNewMessage(pkg, it.text) }
         } finally {
             root.recycle()
         }
     }
 
+    private fun rememberContext(text: String) {
+        recentContext.addLast(text)
+        while (recentContext.size > 12) recentContext.removeFirst()
+    }
+
     private fun processNewMessage(platform: String, incoming: String) {
-        pendingMessages.add(incoming)
+        if (pendingMessages.lastOrNull() != incoming) pendingMessages.add(incoming)
+        while (pendingMessages.size > 2) pendingMessages.removeAt(0)
         pendingPlatform = platform
         pendingSend?.let(handler::removeCallbacks)
         setStatus("Đang gom tin... 3s")
@@ -119,7 +125,8 @@ class AutoReplyService : AccessibilityService() {
             pendingMessages.clear()
             pendingPlatform = null
             pendingSend = null
-            val combined = batch.joinToString("\n")
+            val context = recentContext.toList().dropLast(batch.size).takeLast(10).joinToString("\n")
+            val combined = (if (context.isBlank()) "" else "Ngữ cảnh tin nhắn cũ (chỉ để hiểu, không trả lời từng tin):\n" + context + "\n\n") + "Chỉ trả lời tin nhắn mới sau đây:\n" + batch.joinToString("\n")
             setStatus("Đang hỏi AI với " + batch.size + " tin...")
             Log.d(TAG, "🤖 Hết 3s yên lặng — gửi " + batch.size + " tin đã gom sang AI")
             worker.execute {
