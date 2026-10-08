@@ -19,6 +19,7 @@ object AshnaWebClient {
  private val main=Handler(Looper.getMainLooper())
  private var web:WebView?=null
  private var window:WindowManager?=null
+ private var submitted=false
  @Volatile private var busy=false
 
  fun requestReply(context:Context,incoming:String):String{
@@ -28,12 +29,13 @@ object AshnaWebClient {
   main.post{
    if(busy){future.completeExceptionally(IllegalStateException("Ashna đang xử lý lượt trước"));return@post}
    busy=true
+   submitted=false
    try { ensure(context.applicationContext) } catch(e:Exception) { busy=false; future.completeExceptionally(e); return@post }
    val v=web?:run{busy=false;future.completeExceptionally(IllegalStateException("Không tạo được Ashna WebView"));return@post}
    v.webViewClient=object:WebViewClient(){
     override fun onPageFinished(view:WebView,url:String){
      CookieManager.getInstance().flush()
-     if(!future.isDone) main.postDelayed({submit(view,incoming,future,0)},1200)
+     if(!future.isDone && !submitted) main.postDelayed({if(!submitted)submit(view,incoming,future,0)},1200)
     }
    }
    v.loadUrl(URL)
@@ -80,6 +82,7 @@ object AshnaWebClient {
    when{
     state=="LOGIN"->f.completeExceptionally(IllegalStateException("Ashna đang ở trang đăng nhập. Mở Ashna để kiểm tra phiên."))
     state.startsWith("{")->{
+     submitted=true
      val baseline=runCatching{org.json.JSONObject(state).optString("baseline")}.getOrDefault("")
      main.postDelayed({poll(v,incoming,prompt,baseline,f,0,"")},1600)
     }
@@ -91,13 +94,13 @@ object AshnaWebClient {
 
  private fun poll(v:WebView,incoming:String,prompt:String,baseline:String,f:CompletableFuture<String>,attempt:Int,previous:String){
   if(f.isDone)return
-  if(attempt>30){f.completeExceptionally(IllegalStateException("Ashna không trả về câu trả lời"));return}
+  if(attempt>30){f.completeExceptionally(IllegalStateException("Không đọc được phản hồi Ashna. Có thể nút Gửi không hoạt động hoặc cấu trúc trang đã thay đổi."));return}
   val js="(function(){var old={};"+quote(baseline)+".split(/\\\\n+/).forEach(function(x){x=x.trim();if(x)old[x]=1});"+
    "var q="+quote(prompt)+",original="+quote(incoming)+",out=[];"+
    "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|thinking|thought|generating)$/i;"+
    "var nodes=[].slice.call(document.querySelectorAll('[data-message-author-role=assistant],[data-role=assistant],[data-testid*=assistant],[data-testid*=message],[class*=assistant],[class*=Assistant],[class*=message],[class*=Message],[role=article]'));"+
    "nodes.forEach(function(n){var t=(n.innerText||n.textContent||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<4000&&!t.includes(q))out.push(t)});"+
-   "if(!out.length){var blocks=[].slice.call(document.querySelectorAll('main p,main [class*=prose],main [class*=markdown],article p'));blocks.forEach(function(n){var t=(n.innerText||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<2000&&!t.includes(q))out.push(t)})}"+
+   "if(!out.length){var blocks=[].slice.call(document.querySelectorAll('main p,main [class*=prose],main [class*=markdown],article p,[data-testid*=response]'));blocks.forEach(function(n){var t=(n.innerText||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<2000&&!t.includes(q))out.push(t)})}"+
    "return JSON.stringify(out.slice(-5))})();"
   v.evaluateJavascript(js){raw->
    val a=runCatching{org.json.JSONArray(decode(raw))}.getOrNull();var candidate=""
