@@ -89,14 +89,13 @@ object AshnaWebClient {
 
  private fun clickSend(v:WebView,incoming:String,prompt:String,baseline:String,f:CompletableFuture<String>){
   if(f.isDone)return
-  val js="(function(){var i=[].slice.call(document.querySelectorAll('textarea,[contenteditable=true],[role=textbox]')).pop();if(!i)return 'NO_INPUT';"+
-   "var value=(i.value||i.innerText||'').trim();if(!value)return 'EMPTY_INPUT';"+
-   "var r=i.getBoundingClientRect();var buttons=[].slice.call(document.querySelectorAll('button,[role=button]')).filter(function(b){var z=b.getBoundingClientRect();return z.width>0&&z.height>0&&!b.disabled&&b.getAttribute('aria-disabled')!='true'});"+
-   "var score=function(b){var z=b.getBoundingClientRect(),label=((b.getAttribute('aria-label')||'')+' '+(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase();var n=/send|gửi|submit/.test(label)?300:0;if(/microphone|record|voice|mic/.test(label))n-=400;if(z.left>=r.left&&z.right<=r.right+90&&Math.abs(z.bottom-r.bottom)<110)n+=180;if(b.querySelector('svg'))n+=30;return n};"+
-   "buttons.sort(function(a,b){return score(b)-score(a)});var b=buttons[0];if(b&&score(b)>=180){b.click();return 'CLICKED'}var form=i.closest('form');if(form&&form.requestSubmit){form.requestSubmit();return 'FORM_SENT'}return 'NO_SEND_BUTTON'})()"
+  val js="(function(){var fields=[].slice.call(document.querySelectorAll('textarea,[contenteditable=true],[role=textbox]'));var i=fields.filter(function(e){return (e.value||e.innerText||'').trim().length>0}).pop();if(!i)return 'EMPTY_INPUT';"+
+   "var r=i.getBoundingClientRect();var buttons=[].slice.call(document.querySelectorAll('button,[role=button],input[type=submit]')).filter(function(b){var z=b.getBoundingClientRect();return z.width>0&&z.height>0&&!b.disabled&&b.getAttribute('aria-disabled')!='true'});"+
+   "var score=function(b){var z=b.getBoundingClientRect(),label=((b.getAttribute('aria-label')||'')+' '+(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase();if(/microphone|record|voice|mic/.test(label))return -1000;var n=/send|gửi|submit/.test(label)?500:0;if(b.type==='submit')n+=250;if(z.left>=r.left-20&&z.left<=r.right+180&&Math.abs(z.bottom-r.bottom)<170)n+=220;if(b.querySelector('svg'))n+=25;return n};"+
+   "buttons.sort(function(a,b){return score(b)-score(a)});var b=buttons[0];if(b&&score(b)>=220){b.click();return 'CLICKED'}var form=i.closest('form');if(form&&form.requestSubmit){form.requestSubmit();return 'FORM_SENT'}i.focus();i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true}));i.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true}));return 'ENTER_ATTEMPT'})()"
   v.evaluateJavascript(js){raw->
    when(val state=decode(raw)){
-    "CLICKED","FORM_SENT"->main.postDelayed({poll(v,incoming,prompt,baseline,f,0,"")},1400)
+    "CLICKED","FORM_SENT","ENTER_ATTEMPT"->main.postDelayed({poll(v,incoming,prompt,baseline,f,0,"")},1400)
     else->f.completeExceptionally(IllegalStateException("Không gửi được câu hỏi Ashna: "+state))
    }
   }
