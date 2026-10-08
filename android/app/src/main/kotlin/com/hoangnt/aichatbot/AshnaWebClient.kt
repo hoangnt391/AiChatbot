@@ -113,12 +113,11 @@ object AshnaWebClient {
    }
    return
   }
-  val js="(function(){var old={};"+quote(baseline)+".split(/\\\\n+/).forEach(function(x){x=x.trim();if(x)old[x]=1});"+
-   "var q="+quote(prompt)+",original="+quote(incoming)+",out=[];"+
-   "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|thinking|thought|generating)$/i;"+
-   "var nodes=[].slice.call(document.querySelectorAll('[data-message-author-role=assistant],[data-role=assistant],[data-testid*=assistant],[data-testid*=message],[class*=assistant],[class*=Assistant],[class*=message],[class*=Message],[role=article]'));"+
-   "nodes.forEach(function(n){var t=(n.innerText||n.textContent||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<4000&&!t.includes(q))out.push(t)});"+
-   "if(!out.length){var blocks=[].slice.call(document.querySelectorAll('main p,main [class*=prose],main [class*=markdown],article p,[data-testid*=response]'));blocks.forEach(function(n){var t=(n.innerText||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<2000&&!t.includes(q))out.push(t)})}"+
+  val js="(function(){var before="+quote(baseline)+";var now=document.body?document.body.innerText:'';"+
+   "var i=[].slice.call(document.querySelectorAll('textarea,[contenteditable=true],[role=textbox]')).pop();var q="+quote(prompt)+";"+
+   "var selectors='[data-message-author-role=assistant],[data-role=assistant],[data-testid*=assistant],[class*=assistant],[class*=Assistant],article,[class*=markdown],[class*=prose]';"+
+   "var nodes=[].slice.call(document.querySelectorAll(selectors));var out=[];nodes.forEach(function(n){var t=(n.innerText||'').trim();if(t.length>1&&t.length<2500&&!before.includes(t)&&!t.includes(q)&&!t.includes('What can I do for you today?')&&!t.includes('Hey, Hoàng Tiến! How can I help?'))out.push(t)});"+
+   "if(!out.length&&now.length>before.length){var t=now.slice(before.length).trim();if(t.length>1&&!t.includes(q)&&t.length<2500)out.push(t)}"+
    "return JSON.stringify(out.slice(-5))})();"
   v.evaluateJavascript(js){raw->
    val a=runCatching{org.json.JSONArray(decode(raw))}.getOrNull();var candidate=""
