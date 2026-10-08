@@ -72,11 +72,7 @@ object AshnaWebClient {
    "var input=a.sort(function(x,y){return y.getBoundingClientRect().bottom-x.getBoundingClientRect().bottom})[0];if(!input)return 'NO_INPUT';"+
    "var baseline=body,q="+quote(prompt)+";input.focus();if(input.isContentEditable)input.textContent=q;else{var setter=Object.getOwnPropertyDescriptor(input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value');if(setter&&setter.set)setter.set.call(input,q);else input.value=q;}"+
    "input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));"+
-   "var bs=[].slice.call(document.querySelectorAll('button,[role=button],input[type=submit]')).filter(function(x){return vis(x)&&!x.disabled&&x.getAttribute('aria-disabled')!='true'});"+
-   "var score=function(x){var z=((x.innerText||'')+' '+(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')+' '+(x.getAttribute('data-testid')||'')).toLowerCase();var s=0;if(/send|gửi|submit|arrow.?up|paper.?plane/.test(z))s+=200;if(x.type==='submit')s+=100;if(x.querySelector('svg path'))s+=15;var r=x.getBoundingClientRect(),ir=input.getBoundingClientRect();if(Math.abs(r.top-ir.top)<100)s+=80;if(r.left>=ir.left&&r.left<=ir.right+120)s+=60;return s};"+
-   "bs.sort(function(x,y){return score(y)-score(x)});var b=bs.length&&score(bs[0])>=100?bs[0]:null;"+
-   "if(b){b.click()}else{var form=input.closest('form');if(form&&form.requestSubmit)form.requestSubmit();else return 'NO_SEND_BUTTON';}"+
-   "return JSON.stringify({state:'SENT',baseline:baseline})})();"
+   "return JSON.stringify({state:'INPUT_READY',baseline:baseline})})();"
   v.evaluateJavascript(js){raw->
    val state=decode(raw)
    when{
@@ -84,10 +80,24 @@ object AshnaWebClient {
     state.startsWith("{")->{
      submitted=true
      val baseline=runCatching{org.json.JSONObject(state).optString("baseline")}.getOrDefault("")
-     main.postDelayed({poll(v,incoming,prompt,baseline,f,0,"")},1600)
+     main.postDelayed({clickSend(v,incoming,prompt,baseline,f)},600)
     }
-    state=="NO_SEND_BUTTON"->f.completeExceptionally(IllegalStateException("Không tìm thấy nút Gửi của Ashna; câu hỏi chưa được gửi."))
     else->main.postDelayed({submit(v,incoming,f,attempt+1)},500)
+   }
+  }
+ }
+
+ private fun clickSend(v:WebView,incoming:String,prompt:String,baseline:String,f:CompletableFuture<String>){
+  if(f.isDone)return
+  val js="(function(){var i=[].slice.call(document.querySelectorAll('textarea,[contenteditable=true],[role=textbox]')).pop();if(!i)return 'NO_INPUT';"+
+   "var value=(i.value||i.innerText||'').trim();if(!value)return 'EMPTY_INPUT';"+
+   "var r=i.getBoundingClientRect();var buttons=[].slice.call(document.querySelectorAll('button,[role=button]')).filter(function(b){var z=b.getBoundingClientRect();return z.width>0&&z.height>0&&!b.disabled&&b.getAttribute('aria-disabled')!='true'});"+
+   "var score=function(b){var z=b.getBoundingClientRect(),label=((b.getAttribute('aria-label')||'')+' '+(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase();var n=/send|gửi|submit/.test(label)?300:0;if(/microphone|record|voice|mic/.test(label))n-=400;if(z.left>=r.left&&z.right<=r.right+90&&Math.abs(z.bottom-r.bottom)<110)n+=180;if(b.querySelector('svg'))n+=30;return n};"+
+   "buttons.sort(function(a,b){return score(b)-score(a)});var b=buttons[0];if(b&&score(b)>=180){b.click();return 'CLICKED'}var form=i.closest('form');if(form&&form.requestSubmit){form.requestSubmit();return 'FORM_SENT'}return 'NO_SEND_BUTTON'})()"
+  v.evaluateJavascript(js){raw->
+   when(val state=decode(raw)){
+    "CLICKED","FORM_SENT"->main.postDelayed({poll(v,incoming,prompt,baseline,f,0,"")},1400)
+    else->f.completeExceptionally(IllegalStateException("Không gửi được câu hỏi Ashna: "+state))
    }
   }
  }
