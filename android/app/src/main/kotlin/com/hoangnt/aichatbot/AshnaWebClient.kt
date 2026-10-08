@@ -51,7 +51,7 @@ object AshnaWebClient {
   }
   val wm=context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
   val type=if(Build.VERSION.SDK_INT>=26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
-  val params=WindowManager.LayoutParams(2,2,type,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,PixelFormat.TRANSLUCENT).apply{
+  val params=WindowManager.LayoutParams(360,640,type,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,PixelFormat.TRANSLUCENT).apply{
    gravity=Gravity.TOP or Gravity.START
    x=0;y=0;alpha=0.01f
   }
@@ -65,10 +65,10 @@ object AshnaWebClient {
   if(attempt>20){f.completeExceptionally(IllegalStateException("Không tìm thấy ô nhập Ashna. Kiểm tra mạng hoặc mở Ashna để xác nhận phiên."));return}
   val prompt="Đóng vai người đang nhắn tin. Trả lời ngắn gọn 1-2 câu, tự nhiên, không giải thích, chỉ xuất nội dung có thể gửi ngay. Tin nhắn mới: "+incoming
   val js="(function(){var vis=function(e){if(!e)return false;var r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden'};"+
-   "var body=document.body?document.body.innerText:'';if(//login|/sign-in|/signin|/auth/i.test(location.pathname)&&!document.querySelector('textarea,[contenteditable=\\\"true\\\"]'))return 'LOGIN';"+
-   "var a=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\\\"true\\\"]')).filter(function(e){return vis(e)&&!e.disabled&&e.type!='hidden'});"+
+   "var body=document.body?document.body.innerText:'';if(['login','sign-in','signin','auth'].some(function(p){return location.pathname.toLowerCase().split('/').indexOf(p)>=0})&&!document.querySelector('textarea,[contenteditable=\\\"true\\\"]'))return 'LOGIN';"+
+   "var a=[].slice.call(document.querySelectorAll('textarea,input:not([type=hidden]),[contenteditable=\\\"true\\\"],[role=\\\"textbox\\\"]')).filter(function(e){return !e.disabled&&e.type!='hidden'&&e.getAttribute('aria-hidden')!='true'});"+
    "var input=a.sort(function(x,y){return y.getBoundingClientRect().bottom-x.getBoundingClientRect().bottom})[0];if(!input)return 'NO_INPUT';"+
-   "var baseline=body,q="+quote(prompt)+";input.focus();if(input.isContentEditable)input.innerText=q;else input.value=q;"+
+   "var baseline=body,q="+quote(prompt)+";input.focus();if(input.isContentEditable)input.textContent=q;else{var setter=Object.getOwnPropertyDescriptor(input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value');if(setter&&setter.set)setter.set.call(input,q);else input.value=q;}"+
    "input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));"+
    "var bs=[].slice.call(document.querySelectorAll('button,[role=button],input[type=submit]')).filter(vis);"+
    "var b=bs.find(function(x){var z=((x.innerText||'')+' '+(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')).toLowerCase();return /send|gửi|submit|arrow.?up|paper.?plane/.test(z)});"+
