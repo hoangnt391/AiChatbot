@@ -6,6 +6,11 @@ import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.WindowManager
+import android.view.Gravity
+import android.graphics.PixelFormat
+import android.os.Build
+import android.provider.Settings
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
@@ -13,6 +18,7 @@ object AshnaWebClient {
  private const val URL="https://app.ashna.ai/chat?agent=gpt-6.1-sol"
  private val main=Handler(Looper.getMainLooper())
  private var web:WebView?=null
+ private var window:WindowManager?=null
  @Volatile private var busy=false
 
  fun requestReply(context:Context,incoming:String):String{
@@ -21,10 +27,14 @@ object AshnaWebClient {
   val future=CompletableFuture<String>()
   main.post{
    if(busy){future.completeExceptionally(IllegalStateException("Ashna đang xử lý lượt trước"));return@post}
-   busy=true; ensure(context.applicationContext)
+   busy=true
+   try { ensure(context.applicationContext) } catch(e:Exception) { busy=false; future.completeExceptionally(e); return@post }
    val v=web?:run{busy=false;future.completeExceptionally(IllegalStateException("Không tạo được Ashna WebView"));return@post}
    v.webViewClient=object:WebViewClient(){
-    override fun onPageFinished(view:WebView,url:String){CookieManager.getInstance().flush();main.postDelayed({submit(view,incoming,future,0)},700)}
+    override fun onPageFinished(view:WebView,url:String){
+     CookieManager.getInstance().flush()
+     if(!future.isDone) main.postDelayed({submit(view,incoming,future,0)},1200)
+    }
    }
    v.loadUrl(URL)
   }
@@ -33,15 +43,26 @@ object AshnaWebClient {
 
  private fun ensure(context:Context){
   if(web!=null)return
-  web=WebView(context).apply{
+  if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.M && !Settings.canDrawOverlays(context))
+   throw IllegalStateException("Cần cấp quyền hiển thị trên ứng dụng khác cho Ashna")
+  val view=WebView(context).apply{
    settings.javaScriptEnabled=true;settings.domStorageEnabled=true;settings.databaseEnabled=true
    CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(this,true)
   }
+  val wm=context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+  val type=if(Build.VERSION.SDK_INT>=26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
+  val params=WindowManager.LayoutParams(2,2,type,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,PixelFormat.TRANSLUCENT).apply{
+   gravity=Gravity.TOP or Gravity.START
+   x=0;y=0;alpha=0.01f
+  }
+  wm.addView(view,params)
+  window=wm
+  web=view
  }
 
  private fun submit(v:WebView,incoming:String,f:CompletableFuture<String>,attempt:Int){
   if(f.isDone)return
-  if(attempt>20){f.completeExceptionally(IllegalStateException("Không tìm thấy ô nhập Ashna"));return}
+  if(attempt>20){f.completeExceptionally(IllegalStateException("Không tìm thấy ô nhập Ashna. Kiểm tra mạng hoặc mở Ashna để xác nhận phiên."));return}
   val prompt="Đóng vai người đang nhắn tin. Trả lời ngắn gọn 1-2 câu, tự nhiên, không giải thích, chỉ xuất nội dung có thể gửi ngay. Tin nhắn mới: "+incoming
   val js="(function(){var vis=function(e){if(!e)return false;var r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden'};"+
    "var body=document.body?document.body.innerText:'';if(/\/login|\/sign-in|\/signin|\/auth/i.test(location.pathname)&&!document.querySelector('textarea,[contenteditable=\\\"true\\\"]'))return 'LOGIN';"+
