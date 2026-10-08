@@ -72,7 +72,7 @@ object AshnaWebClient {
    "input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));"+
    "var bs=[].slice.call(document.querySelectorAll('button,[role=button],input[type=submit]')).filter(vis);"+
    "var b=bs.find(function(x){var z=((x.innerText||'')+' '+(x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')).toLowerCase();return /send|gửi|submit|arrow.?up|paper.?plane/.test(z)});"+
-   "if(b)b.click();else input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));"+
+   "if(b&&!b.disabled)b.click();else{var form=input.closest('form');if(form&&form.requestSubmit)form.requestSubmit();else return 'NO_SEND_BUTTON';}"+
    "return JSON.stringify({state:'SENT',baseline:baseline})})();"
   v.evaluateJavascript(js){raw->
    val state=decode(raw)
@@ -82,6 +82,7 @@ object AshnaWebClient {
      val baseline=runCatching{org.json.JSONObject(state).optString("baseline")}.getOrDefault("")
      main.postDelayed({poll(v,incoming,prompt,baseline,f,0,"")},1600)
     }
+    state=="NO_SEND_BUTTON"->f.completeExceptionally(IllegalStateException("Không tìm thấy nút Gửi của Ashna; câu hỏi chưa được gửi."))
     else->main.postDelayed({submit(v,incoming,f,attempt+1)},500)
    }
   }
@@ -93,8 +94,9 @@ object AshnaWebClient {
   val js="(function(){var old={};"+quote(baseline)+".split(/\\\\n+/).forEach(function(x){x=x.trim();if(x)old[x]=1});"+
    "var q="+quote(prompt)+",original="+quote(incoming)+",out=[];"+
    "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|thinking|thought|generating)$/i;"+
-   "var nodes=[].slice.call(document.querySelectorAll('[data-message-author-role=assistant],[data-role=assistant],[role=article],[data-message-id],[data-testid*=message],[class*=message],[class*=Message]'));"+
-   "nodes.forEach(function(n){var t=(n.innerText||n.textContent||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<4000)out.push(t)});"+
+   "var nodes=[].slice.call(document.querySelectorAll('[data-message-author-role=assistant],[data-role=assistant],[data-testid*=assistant],[data-testid*=message],[class*=assistant],[class*=Assistant],[class*=message],[class*=Message],[role=article]'));"+
+   "nodes.forEach(function(n){var t=(n.innerText||n.textContent||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<4000&&!t.includes(q))out.push(t)});"+
+   "if(!out.length){var blocks=[].slice.call(document.querySelectorAll('main p,main [class*=prose],main [class*=markdown],article p'));blocks.forEach(function(n){var t=(n.innerText||'').trim();if(t&&t!==q&&t!==original&&!old[t]&&!bad.test(t)&&t.length>1&&t.length<2000&&!t.includes(q))out.push(t)})}"+
    "return JSON.stringify(out.slice(-5))})();"
   v.evaluateJavascript(js){raw->
    val a=runCatching{org.json.JSONArray(decode(raw))}.getOrNull();var candidate=""
