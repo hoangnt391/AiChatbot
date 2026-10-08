@@ -65,7 +65,7 @@ object AshnaWebClient {
   if(attempt>20){f.completeExceptionally(IllegalStateException("Không tìm thấy ô nhập Ashna. Kiểm tra mạng hoặc mở Ashna để xác nhận phiên."));return}
   val prompt="Đóng vai người đang nhắn tin. Trả lời ngắn gọn 1-2 câu, tự nhiên, không giải thích, chỉ xuất nội dung có thể gửi ngay. Tin nhắn mới: "+incoming
   val js="(function(){var vis=function(e){if(!e)return false;var r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!='none'&&s.visibility!='hidden'};"+
-   "var body=document.body?document.body.innerText:'';if(/\/login|\/sign-in|\/signin|\/auth/i.test(location.pathname)&&!document.querySelector('textarea,[contenteditable=\\\"true\\\"]'))return 'LOGIN';"+
+   "var body=document.body?document.body.innerText:'';if(//login|/sign-in|/signin|/auth/i.test(location.pathname)&&!document.querySelector('textarea,[contenteditable=\\\"true\\\"]'))return 'LOGIN';"+
    "var a=[].slice.call(document.querySelectorAll('textarea,input,[contenteditable=\\\"true\\\"]')).filter(function(e){return vis(e)&&!e.disabled&&e.type!='hidden'});"+
    "var input=a.sort(function(x,y){return y.getBoundingClientRect().bottom-x.getBoundingClientRect().bottom})[0];if(!input)return 'NO_INPUT';"+
    "var baseline=body,q="+quote(prompt)+";input.focus();if(input.isContentEditable)input.innerText=q;else input.value=q;"+
