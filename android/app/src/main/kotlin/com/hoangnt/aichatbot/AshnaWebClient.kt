@@ -94,7 +94,15 @@ object AshnaWebClient {
 
  private fun poll(v:WebView,incoming:String,prompt:String,baseline:String,f:CompletableFuture<String>,attempt:Int,previous:String){
   if(f.isDone)return
-  if(attempt>30){f.completeExceptionally(IllegalStateException("Không đọc được phản hồi Ashna. Có thể nút Gửi không hoạt động hoặc cấu trúc trang đã thay đổi."));return}
+  if(attempt>30){
+   val diagnostic="(function(){var i=document.querySelector('textarea,[contenteditable=true],[role=textbox]');var t=(document.body&&document.body.innerText||'').slice(-500);return JSON.stringify({url:location.pathname,input:i?(i.value||i.innerText||'').slice(0,80):'MISSING',tail:t})})()"
+   v.evaluateJavascript(diagnostic){raw->
+    val detail=decode(raw).take(650)
+    android.util.Log.e("AshnaWebClient","Ashna timeout: "+detail)
+    f.completeExceptionally(IllegalStateException("Ashna chưa có phản hồi đọc được. Chẩn đoán: "+detail))
+   }
+   return
+  }
   val js="(function(){var old={};"+quote(baseline)+".split(/\\\\n+/).forEach(function(x){x=x.trim();if(x)old[x]=1});"+
    "var q="+quote(prompt)+",original="+quote(incoming)+",out=[];"+
    "var bad=/^(send|gửi|new chat|chat|settings|sign in|log in|copy|regenerate|stop|retry|thinking|thought|generating)$/i;"+
