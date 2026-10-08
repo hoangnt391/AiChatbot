@@ -28,6 +28,13 @@ class OverlayService : Service() {
         private const val PREFS = "aichatbot"
         private const val AUTO_MODE = "auto_mode"
 
+        // Compatibility for the legacy accessibility listener; AI replies are
+        // handled exclusively by AutoReplyService, not the overlay.
+        fun enqueueIncoming(context: Context, platform: String, message: String) {
+            if (message.isBlank()) return
+            Log.d(TAG, "Incoming from $platform; handled by AutoReplyService")
+        }
+
         fun enqueueAiReply(context: Context, reply: String, platform: String = "") {
             if (reply.trim().isEmpty()) return
             context.startService(Intent(context, OverlayService::class.java).apply {
